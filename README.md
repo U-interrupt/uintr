@@ -2,6 +2,16 @@
 
 This is a zcu102 port for the implementation of RISC-V user interrupt extension, based on [Rocket](https://github.com/chipsalliance/rocket-chip).
 
+## Introductions
+
+If you clone the repository for the first time, you must update submodules recursively. You may follow the [README](rocket-chip/README.md) to install a riscv toolchain.
+
+Run the following scripts in the root directory to generate Rocket Chip verilog outputs.
+
+```sh
+make build
+```
+
 ## Table of contents
 
 - What is user interrupt?
@@ -17,10 +27,11 @@ This is a zcu102 port for the implementation of RISC-V user interrupt extension,
   - Boot rCore and Linux on Rocket Chip.
 - Apply user-interrupt hardware design to Rocket.
 
+
 ## Rocket chip
 
 
-We don't have access to VCS simulator, but we generate the synthesizable Verilog file with the commands:
+We don't have access to VCS simulator, but we can generate the synthesizable Verilog file with the commands:
 
 ```sh
 make verilog CONFIG=freechips.rocketchip.system.DefaultFPGAConfig
@@ -34,17 +45,21 @@ SBT ?= java -Xmx$(JVM_MEMORY) -Xss8M -jar $(base_dir)/sbt-launch.jar
 JAVA ?= java -Xmx$(JVM_MEMORY) -Xss8M
 FIRRTL ?= $(JAVA) -cp $(ROCKET_CHIP_JAR) firrtl.stage.FirrtlMain
 GENERATOR ?= $(JAVA) -cp $(ROCKET_CHIP_JAR) $(PROJECT).Generator
+
 # List all resource files in Rocket Chip project.
 scala_srcs := $(shell find $(base_dir) -name "*.scala" -o -name "*.sbt")
 resource_dirs := $(shell find $(base_dir) -type d -path "*/src/main/resources")
 resources := $(foreach d,$(resource_dirs),$(shell find $(d) -type f))
 all_srcs := $(scala_srcs) $(resources)
+
 # Get rocket chip .jar file
 ROCKET_CHIP_JAR := $(base_dir)/rocketchip.jar
 $(ROCKET_CHIP_JAR): $(all_srcs)
 	cd $(base_dir) && $(SBT) assembly
+
 # Use pre-generated bootrom image
 bootrom_img = $(base_dir)/bootrom/bootrom.img
+
 # We need to change the CONFIG mannually
 $(generated_dir)/%.fir $(generated_dir)/%.d: $(ROCKET_CHIP_JAR) $(bootrom_img)
 	mkdir -p $(dir $@)
