@@ -82,3 +82,11 @@ In conclusion, what we should prepare is:
 - A bootrom image to load device tree and boot system softwares (uboot, linux). Maybe we can use RustSBI or OpenSBI instead.
 - A device tree to let the generator know what the zcu102 board looks like
 - A configuration written in Chisel and passed to the generator while building .fir file, which can be found in `src/main/scala/system`.
+
+### Build Rocket
+
+- First we need build [riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain): run `./configure --prefix=/opt/riscv; make` to install `riscv64-unknown-elf-*` tools.
+  - You might need to refer to the [README.md](https://github.com/riscv-collab/riscv-gnu-toolchain/README.md) to install dependencies.
+- Set `RISCV` environment variable in your workspace. E.g. run `echo "export RISCV=/opt/riscv/; export PATH=$RISCV/bin:$PATH;" >> ~/.bashrc` to set it global.
+- Get [riscv-tools](https://github.com/riscv-software-src/riscv-tools) and build it. E.g. run `sudo RISCV=/opt/riscv bash -c ./build.sh` because the toolchain is installed under a directory which can be modified only with root permission.
+  - See [this issue](https://github.com/riscv-software-src/riscv-tests/issues/286): add `-fcommon` to `RISCV_GCC_OPTS` because cuurent version of gcc compilers sets `-fno-common` by default.
