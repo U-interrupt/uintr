@@ -108,8 +108,7 @@ More details in **[chipyard](https://chipyard.readthedocs.io/en/stable/index.htm
   - PLIC: aggregates and masks device interrupts and external interrupts.
   - CLINT: contains software interrupts and timer interrupts for CPU.
   - Debug: can be used to load data or instructions to memory or pull data from memory.
-- PeripheryBus: connects additional peripherals like the NIC and Block Device. 
-- L2 Cache:  
+- PeripheryBus: connects additional peripherals like the NIC and Block Device.
 
 ![](imgs/rocketchip-diagram.png)
 
@@ -127,3 +126,34 @@ openjdk version "1.8.0_342"
 OpenJDK Runtime Environment (build 1.8.0_342-8u342-b07-0ubuntu1~20.04-b07)
 OpenJDK 64-Bit Server VM (build 25.342-b07, mixed mode)
 ```
+
+### 11.2
+
+#### Labeled SOC
+
+- Two block designs, `pardcore` and `zynqsoc` are wrapped together by a top module in `system_top.v`.
+- AXI interfaces between them are mapped through `address_mapper.v`. E.g. Rocket M_AXI_MEM is mapped from `[0x1_0000_0000, 0x1_8000_0000)` to `[0x8_0000_0000, 0x8_8000_0000)`.
+- Main interfaces exposed by Rocket or `pardcore` are listed below:
+  - Jtag interfaces (optional)
+  - Led (pin connected)
+  - M_AXI_MEM: 0x1_0000_0000, 2G
+  - M_AXI_MMIO: 0x4000_0000, 1G
+  - S_AXI_DMA: frontend bus to L2 Cache, 0x0, 8G
+
+```scala
+class LvNAFPGATop(implicit p: Parameters) extends ExampleRocketSystem
+    with HasControlPlane
+    with BindL2WayMask
+{
+  override lazy val module = new LvNAFPGATopModule(this)
+}
+
+class LvNAFPGATopModule[+L <: LvNAFPGATop](_outer: L) extends ExampleRocketSystemModuleImp(_outer)
+    with HasControlPlaneModuleImpl
+    with BindL2WayMaskModuleImp
+```
+
+- `LvNAFPGATop` extends existing module `ExampleRocketSystem` with two traits:
+  - `HasControlPlane`: 
+  - `BindL2WayMask`: 
+

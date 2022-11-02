@@ -1,3 +1,4 @@
 [submodule "rocket-chip"]
 	path = rocket-chip
 	url = git@github.com:U-interrupt/rocket-chip.git
+	branch = 1.6
