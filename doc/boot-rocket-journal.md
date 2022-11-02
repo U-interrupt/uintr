@@ -98,9 +98,7 @@ More details in **[chipyard](https://chipyard.readthedocs.io/en/stable/index.htm
 - RocketTile:
   - Rocket Core: can be swapped for a BOOM core.
   - PTW: Page Table Walker is seperated from the main logic of Rocket Core.
-  - L1 Cache:
-    - L1 I$
-    - L1 D$
+  - L1 Cache
   - TileBus
 - SystemBus: the TileLink network that sits between the tiles and the L2 agents and MMIO peripherals.
 - ControlBus: connects standard peripherals like BootRom, PLIC, CLINT and the Debug Unit.
@@ -140,20 +138,20 @@ OpenJDK 64-Bit Server VM (build 25.342-b07, mixed mode)
   - M_AXI_MMIO: 0x4000_0000, 1G
   - S_AXI_DMA: frontend bus to L2 Cache, 0x0, 8G
 
-```scala
-class LvNAFPGATop(implicit p: Parameters) extends ExampleRocketSystem
-    with HasControlPlane
-    with BindL2WayMask
-{
-  override lazy val module = new LvNAFPGATopModule(this)
-}
+With `DefaultConfig` and `ExampleRocketSystem`, Rocket exposes a MMIO-AXI4 interface and a MEM-AXI4 interface to peripherals.
 
-class LvNAFPGATopModule[+L <: LvNAFPGATop](_outer: L) extends ExampleRocketSystemModuleImp(_outer)
-    with HasControlPlaneModuleImpl
-    with BindL2WayMaskModuleImp
-```
+#### Zynq UltraScale+MPSoC
 
-- `LvNAFPGATop` extends existing module `ExampleRocketSystem` with two traits:
-  - `HasControlPlane`: 
-  - `BindL2WayMask`: 
+
+> Some acronyms: 
+> **beat**: An individual data transfer within an AXI burst. 
+> **dut**: Device under test
+> **PS**: Processing system
+> **PL**: Programmable logic
+
+This device has 4 different power domains:
+- LPD: Low-power domain
+- FPD: Full-power domain
+- PLPD: PL power domain
+- BPD: Battery power domain
 

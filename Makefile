@@ -1,7 +1,7 @@
 # FPGA project
 
 ROCKET_ROOT ?= rocket-chip
-CONFIG ?= freechips.rocketchip.system.DefaultFPGAConfig
+CONFIG ?= freechips.rocketchip.system.UINTRConfigZCU102
 BUILD ?= build
 
 # Generate vivado project
