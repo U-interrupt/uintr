@@ -3,6 +3,7 @@
 ROCKET_ROOT ?= rocket-chip
 CONFIG ?= freechips.rocketchip.system.UINTRConfigZCU102
 BUILD ?= build
+BUILD_RTL = $(BUILD)/generated-src/$(CONFIG).v
 
 # Generate vivado project
 
@@ -17,22 +18,27 @@ PRJ_ROOT = $(BOARD_ROOT)/build/$(PRJ_FULL)
 
 BD_TCL_FILE = $(BOARD_ROOT)/bd/prm.tcl
 XPR_FILE = $(PRJ_ROOT)/$(PRJ_FULL).xpr
-
 VIVADO_FLAGS ?= -nolog -nojournal -notrace
 
-$(XPR_FILE): $(BD_TCL_FILE)
+ROCKET_RTL = $(BOARD_ROOT)/rtl/rocketchip_$(BOARD).v
+
+project: $(ROCKET_RTL)
+
+$(XPR_FILE): $(BD_TCL_FILE) $(ROCKET_RTL)
 	@vivado $(VIVADO_FLAGS) -mode batch -source $(BOARD_ROOT)/mk.tcl -tclargs $(PRJ_FULL)
 
-project: build $(XPR_FILE)
+# Copy built rtl to the target board
+$(ROCKET_RTL): $(BUILD_RTL)
+	@cat $^ > $@ 
+
+$(BUILD_RTL): rocket
+	@mkdir -p $(BUILD)
+	@cp -r $(ROCKET_ROOT)/vsim/generated-src/ $(BUILD)/
 
 rocket: $(BOOTROM_IMG)
 	@cd $(ROCKET_ROOT); git submodule update --init --recursive
 	@echo "Building rocket-chip verilog..."
 	@cd $(ROCKET_ROOT)/vsim; make verilog CONFIG=$(CONFIG)
-
-build: rocket
-	@mkdir -p $(BUILD)
-	@mv $(ROCKET_ROOT)/vsim/generated-src/ $(BUILD)/
 
 clean:
 	@rm -f *.log *.jou *.str

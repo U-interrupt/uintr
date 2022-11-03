@@ -185,6 +185,28 @@ EMIO: a easy way to bi-directionally link the LPD to the PL.
   - AXI Direct Memory Access engines (for memory-mapped to stream conversion)
   - AXI Performance Monitors and Protocol Checkers (for analysis and debug)
   - AXI Verificaton IP (for simulation based verfication and performance analysis)
+  
+#### Xilinx IPs
+
+AXI Clock Converter
+
+Processor System Reset
+- `ext_reset_in`: active-low by default (configurable)
+- After `ext_reset_in` becomes active, `bus_struct_reset` and `interconnect_areset` become inactive first, then `peripheral_reset` and `peripheral_areset`, then `mb_reset`.
+
+**Copy a hier between block designs**:
+
+```tcl
+write_bd_tcl -hier_blks [get_bd_cells <hier_name>] <hier_file>.tcl
+source <hier_file>.tcl
+create_hier_cell_<hier_name> <parent_cell> <new_hier_name>
+```
+
+**Write the .tcl which generates Block Design**:
+
+```tcl
+write_bd_tcl -verbose -bd_name uintr_soc -force <tcl_filename>
+```
 
 #### TileLink
 
