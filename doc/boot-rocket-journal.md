@@ -125,7 +125,7 @@ OpenJDK Runtime Environment (build 1.8.0_342-8u342-b07-0ubuntu1~20.04-b07)
 OpenJDK 64-Bit Server VM (build 25.342-b07, mixed mode)
 ```
 
-### 11.2
+### 11.2~11.3
 
 #### Labeled SOC
 
@@ -142,16 +142,50 @@ With `DefaultConfig` and `ExampleRocketSystem`, Rocket exposes a MMIO-AXI4 inter
 
 #### Zynq UltraScale+MPSoC
 
-
-> Some acronyms: 
-> **beat**: An individual data transfer within an AXI burst. 
-> **dut**: Device under test
-> **PS**: Processing system
-> **PL**: Programmable logic
-
 This device has 4 different power domains:
 - LPD: Low-power domain
 - FPD: Full-power domain
 - PLPD: PL power domain
 - BPD: Battery power domain
 
+![](imgs/pl2ps-axi.png)
+
+AXI Interfaces:
+
+- High Performance AXI Masters: Access from the PL to the double data rate (DDR).
+  - 2 S_AXI_HPCn_FPD: connected to the Cache Coherent Interconnect (CCI).
+  - 4 S_AXI_HPn_FPD: connected directry to the DDR interface for memory access.
+- Inbound AXI Slaves:
+  - 1 M_AXI_HPM0_LPD: low-latency slave interface, provides communication between the PS and the PL from the LPD.
+  - 2 M_AXI_HPMn_FPD: from the FPD.
+
+Interrupts:
+
+- Inbound interrupts to PL:
+  - 100 LPD peripherals
+  - 64 FPD peripherals
+- Outbound interrupts from PL:
+  - 16 shared peripheral interrupts to the PS
+  - 4 Inter-Process Interrupts, 4 FIQs and 4 IRQs to the APU
+  - 4 Inter-Processor Interrupts, 2 nFIQs and 2 nIRQs to the RPU
+
+Clocks: 4 clock signals from PS to PL. PL should not depend on implicit sychronization between the clocks incoming from the PS.
+
+EMIO: a easy way to bi-directionally link the LPD to the PL.
+
+#### AXI Support
+
+- AXI4 requires a single address and then bursts up to 256 words of data. AXI-Lite doest not support burst.
+- Memory-Mapped Protocols: (AXI3, AXI4, AXI-Lite) all transactions invovle the concept of transferring a target address within a system memory space and data. 
+- AXI4-Stream: Focused on a data-centric and data-flow paradigm where the concept of an address is not present or not required. 
+- Infrastructure IP: A building block used to help assemble systems.
+  - AXI Register slices (for pipelining)
+  - AXI FIFOs (for buffering/clock conversion)
+  - AXI Inerconnect and AXI SmartConnect IP (for connecting memory-mapped IP together)
+  - AXI Direct Memory Access engines (for memory-mapped to stream conversion)
+  - AXI Performance Monitors and Protocol Checkers (for analysis and debug)
+  - AXI Verificaton IP (for simulation based verfication and performance analysis)
+
+#### TileLink
+
+> **beat**: An AXI 'burst' is a transaction in which multiple data items are transferred based upon a single address, and it is each data item transferred that is referred to as a 'beat'. Since there is only one address transfer, the addresses of each 'beat' in a burst are calculated based on the transaction type (INCR, FIXED or WRAP).The AXI3 protocol allows up to 16 beats in any burst transaction, whereas the AXI4 protocol allows for up to 256 beats in an INCR type burst transaction.
