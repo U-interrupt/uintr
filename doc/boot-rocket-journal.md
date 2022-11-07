@@ -229,3 +229,24 @@ AXI ID:
 #### TileLink
 
 > **beat**: An AXI 'burst' is a transaction in which multiple data items are transferred based upon a single address, and it is each data item transferred that is referred to as a 'beat'. Since there is only one address transfer, the addresses of each 'beat' in a burst are calculated based on the transaction type (INCR, FIXED or WRAP).The AXI3 protocol allows up to 16 beats in any burst transaction, whereas the AXI4 protocol allows for up to 256 beats in an INCR type burst transaction.
+
+#### 11.7
+
+**Mafile**: 
+- = basic assign
+- := assign and overwrite
+- ?= assign by default
+- += push back 
+
+Run `mill -i mill.scalalib.GenIdea/idea`.
+
+Operator `>` in bash scripts:
+- `> file`: redirects stdout to file
+- `1> file`: redirects stdout to file
+- `2> file`: redirects stderr to file
+-  `&> file`(may not work on older systems): redirects stdout and stderr to file
+-  `> file > 2>&1`(older): redirects stdout and stderr to file
+
+`/dev/null`: a null device
+
+
