@@ -232,7 +232,7 @@ AXI ID:
 
 #### 11.7
 
-**Mafile**: 
+Mafile: 
 - = basic assign
 - := assign and overwrite
 - ?= assign by default
@@ -249,4 +249,23 @@ Operator `>` in bash scripts:
 
 `/dev/null`: a null device
 
+[mem sections](https://www.nongnu.org/avr-libc/user-manual/mem_sections.html)
+The ,"ax",@progbits tells the assembler that the section is allocatable ("a"), executable ("x") and contains data ("@progbits").
+For more detailed information on the .section directive, see the gas user manual.
 
+QSPI: Quad serial peripheral interface
+
+------------------
+
+Some thoughts of labeled-RISC-V system:
+- Interconnect reset and peripheral reset should be distinguished in a AXI Interconnect IP. `ARESETN` uses `interconnect_reset` from Processor System Reset while `S0x_/M0x_ARESETN` uses `peripheral_reset`.
+- No need to use DMA in uintr project, Uart is enough.
+- Uart 16550 can run at a higher baudrate than Uartlite.
+- PL can see 4 uarts through Uart 16550 controller from `M_AXI_MMIO` address region, while PS can see 4 uarts through Uartlite controller from `M_AXI_HPM0_LPD`. These are not real uarts but provide channels for communication between PS and PL. PS can use `minicom` to connect to a virtual uart to write to or read from rocket cores in PL.
+- I need to know how to use Jtag.
+
+-----------------
+
+#### 11.8
+
+Learn details of Uart 16550, Uartlite and Jtag.
