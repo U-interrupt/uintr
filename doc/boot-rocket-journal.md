@@ -269,3 +269,64 @@ Some thoughts of labeled-RISC-V system:
 #### 11.8
 
 Learn details of Uart 16550, Uartlite and Jtag.
+
+For UART to work the following settings need to be the same on both the transmitting and receiving side:
+- Baud Rate
+- Parity Bit
+- Data bits size
+- Stop bits size
+- Flow control
+A UART frame consists of 5 elements:
+- Idle (logic high: historic legacy from telegraphy, in which the line is held high to show that the line and transmitter are not damaged)
+- Start bit
+- Data bits
+- Parity bit
+- Stop
+
+Xilinx Virtual Input/Output: A customizable core that can both **monitor** and **drive** internal FPGA signals in real time. An IP core in Vivado IP Catalog.  
+
+I finished building the soc block design with:
+- Uart controllers copied from labeled-RISC-V-N
+- GPIO controller for leds (see src/constraints)
+- Same address map as labeled pre-built images (might be changed later)
+- Jtag axi copied from labeled
+- Now PS can send one bit interrupt to PL rocket chip
+
+Refactor boot code, adjusting to current block design and address map.
+
+See [discussion](https://support.xilinx.com/s/question/0D52E00006lLhBnSAK/zynq-ultrascale-howto-reset-the-pl?language=en_US) about reset PL.
+
+> I haven't tried yet, but as I understand the code in the AR, the function psu_ps_pl_reset_config_data() does the following:
+> 
+>  - mask the EMIO95 (register write to 0XFF0A002C) for whatever reason...
+>  - set the pin direction to output and enable it (register write to 0XFF0A0344 and 0XFF0A0348)
+>  - actual pin toggle using write to 0XFF0A0054
+> 
+> As this function is already called during psu_init(), the configuration is already done and the reset can be toggled by writing to 0XFF0A0054.
+
+In file proj/rocket-chip-zcu102.gen/sources_1/bd/soc/ip/soc_zynq_ultra_ps_e_0_1/psu_init.c, I found the code:
+
+```c
+PSU_Mask_Write(GPIO_DATA_5_OFFSET, 0xFFFFFFFFU, 0x00000000U);
+mask_delay(1);
+PSU_Mask_Write(GPIO_DATA_5_OFFSET, 0xFFFFFFFFU, 0x80000000U);
+```
+
+The function `PSU_Mask_Write` writes masked bits in target register.
+
+```c
+static
+void PSU_Mask_Write(unsigned long offset, unsigned long mask, unsigned long val)
+{
+	unsigned long RegVal = 0x0;
+
+	RegVal = Xil_In32(offset);
+	RegVal &= ~(mask);
+	RegVal |= (val & mask);
+	Xil_Out32(offset, RegVal);
+}
+```
+
+So I did the same job in reset procedure:
+- First mmap the mmio address `0xFF0A0054`.
+- Write to the address with `0x00000000`, then `0x80000000`.
