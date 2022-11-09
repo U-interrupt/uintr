@@ -76,7 +76,7 @@ void init_map()
         exit(1);
     }
     ddr_base = create_map(DDR_TOTAL_SIZE, fd, DDR_BASE_ADDR);
-    resetn_base = create_map(1, fd, PL_RESETN_BASE_ADDR);
+    resetn_base = create_map(4, fd, PL_RESETN_BASE_ADDR);
 }
 
 void resetn()
