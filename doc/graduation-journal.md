@@ -1,4 +1,4 @@
-# 11.24
+## 11.24
 
 - 阅读论文 [CHERI](https://ieeexplore.ieee.org/document/7163016)
 - 目前的问题还是 Rocket 上板后无法与 DDR 进行交互，和尤予阳学长一起尝试用 System ILA 抓取信号，但是没有看到有效信息；labeled RISC-V 和 zynq-fpga 项目均采用直连的办法是可以正常访问的，所以怀疑问题出在对 Rocket 的改动和配置上
@@ -23,3 +23,23 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
     })
 }
 ```
+
+## 12.01
+
+- 由于疫情原因，远程调试硬件不太方便，而且对 RISC-V 用户态中断扩展的设计尚未完善，和老师讨论后，决定在 QEMU 上进行实践，并将此作为毕设内容
+- **OS classroom**：
+
+  - 关闭 log 之后会出现 qemu 执行卡住的情况，用 gdb 调试发现 kernel 执行到这里时 trap 了：
+
+    ```asm
+    8020a6b8: 85 48         li a7, 1
+    8020a6ba: 03 c5 05 00   lbu a0, 0(a1)
+    8020a6be: 73 00 00 00   ecall 
+    ```
+
+    这里 a1 从一个合法的物理地址变成了 1，应该是 SBI 有问题，我之前从某个地方拷贝了一个 `rustsbi.bin` 的镜像，换成 qemu default bios 就可以正常运行了。
+
+  - 发现内核启动后有时会卡住，上 gdb 调试看不出来，实现了 kernel trap，随机触发 Page Fault，猜测是没有刷新内存中的页表，里面有随机初始化的值，rCore-tutorial 好像并没有处理这个问题。
+  - 之前没有认真了解过 ELF，因为要运行 libc、busybox 测例，涉及到动态链接，所以借着这个机会把相关文档看了一下。
+  - 参考 `maturin` 实现了一个 `oscomp` 模块，用来加载测例，更新并打印测试结果。
+  - 将内核改为了 SMP 版本，因为之后要实现用户态中断，所以直接实现多核版本；Rust 鼓励并发，支持通过`Arc<>`、`Mutex<>`等类型将对象进行细粒度的封装，很多全局静态变量例如`Lazy<>`也要求内部结构实现`Send`和`Sync`。如果想先跑通单核版本，用`Rc<>`和`RefCell<>`，之后重构起来会非常麻烦，不如一开始实现的过程中就把问题想清楚。
