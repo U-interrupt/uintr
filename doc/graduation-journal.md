@@ -1,3 +1,5 @@
+# Graduation Journal
+
 ## 11.24
 
 - 阅读论文 [CHERI](https://ieeexplore.ieee.org/document/7163016)
