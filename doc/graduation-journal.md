@@ -56,3 +56,22 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
   - 完善 kernel 的虚存管理部分，增加延时分配的物理页帧，涉及到 COW 等机制的实现。（感觉 maturin 这部分抽象的特别好，所以参考着实现了一版，目前是以 module 的形式实现在 kernel 内部的，之后可以考虑抽象成单独的 crate）
   - 本地通过部分 libc 静态测例。
 - 下周计划通过 libc 全部测例，开始着手修改 qmeu riscv 部分。
+
+## 12.15
+
+- 阅读 QEMU 源码：
+  - 复现 xcd 的工作
+  - 之前 hkp 学长已经有 RISC-N 在 QEMU 5 上的实现了，参考仓库中的 commit ，将改动移到了 QEMU 7 上
+- **OS classroom**
+  - 添加更多系统调用，重点完善 `sys_mmap`，`sys_munmap` 和 `sys_brk` 。`sys_mmap` 参考了 `maturin`，目前还没有处理 `MAP_SHARED` 和 `MAP_PRIVATE`；`sys_munmap` 和 `sys_brk` 参考了 Linux 内核实现。
+  - 随机调换测例顺序或者测例数量，出现如下现象中的任意一种：
+    - 卡在用户态的某个循环里
+    - 用户态 exit code 是一个奇怪的值
+    - 用户态访问非法地址
+  - 和 bhy 讨论，总结此类问题可能出现的原因大致分为几类：用户程序初始化的时候丢失信息、中断、刷新页表后没有刷新 TLB，仔细检查之后，发现并不是这些问题中的任何一种。目前 `FixedPMA` 是初始化即分配物理页帧，对连续的 `AllocatedFrameRange` 进行再封装，这个页帧管理结构主要用于用户程序初始化，情况大致分为以下几种：
+    - 根据 ELF 初始化代码段和数据段
+    - 初始化用户栈
+    - 调用 `kstack_alloc` 初始化内核栈
+    - 初始化 `TrapFrame`
+  - 用户程序会访问到这些地址（主要是 .bss 段），拿到了没有置为 0 的值，然后就出现了奇怪的行为。所以在分配新物理页帧时应先手动清零，再将程序的数据拷贝过来。
+- 下周计划：先确保修改后 RISC-V N 能工作，进一步了解 AIA、PLIC 等。
