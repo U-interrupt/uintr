@@ -1,15 +1,45 @@
 # RISC-V User-interrupt Specification
 
-## RISC-V AIA
+## CSRs
 
-有关 MSI (Message Signalled Interrupts):
+### Supervisor User Interrupt Target Table (suitt) Register
 
-- 传统发中断 pin-based out-of-band ：外设有单独引脚，独立于数据总线
-- MSI：处理器和外设之间存在中断控制器，外设通过数据总线给控制器发送更丰富的中断信息，控制器进行处理后再发给处理器，这些信息可以帮助外设和控制器更好地决策发送中断的时机、目标等。
-- 可以增加中断数量
-- pin-based interrupt 和 posted-write 之间的竞争问题：PCI 内存控制器可能会推迟写入 DMA，导致处理器收到中断后立即尝试通过 DMA 读取旧的数据，所以中断控制器需要读取 PCI 内存控制器来判读写入是否完成。MSI write 和 DMA write 之间共用总线，所以不会出现这种异步的竞争问题。
+The **suitt** is an 64-bit read/write register, formatted as below:
 
-AIA 的设计目标：
+```txt
++------------+--------------+-------------+----------+
+| ENABLE (1) | Reserved (7) | UITTSZ (12) | PPN (44) |
++------------+--------------+-------------+----------+
+```
 
-- 支持 MSI，支持 PCIe 和其他设备
-- 定义 APLIC （Advanced PLIC），每个特权级都有独立的 control plane 将 wired interrupt 转换为 MSI
+This register holds the physical page number (PPN) of the first page of user interrupt target table (UITT); the UITTSZ field, which limits the pages of UITT; the ENABLE field, which indicates user-interrupt posting is enabled for current user.
+
+### User Posted Interrupt Descriptor Address (upidaddr) Register
+
+The **upidaddr** is an 64-bit read/write register which holds the virtual address of UPID.
+
+## Instructions
+
+### SENDUIPI
+
+A new instruction `senduipi <index>` is used for sending a user interrupt. As described in **suitt**, the `index` parameter is used to locate the target user interrupt target table entry (UITTE) with PPN field in **suitt** to get detailed information about the receiver:
+
+`UITTE physical address = ( PPN << 0xC ) + (index * UITTE size)`
+
+Currently, a user interrupt target table entry is **128 B** in size. Reserved bits in **suitt** might be used for further configurations.
+
+If `senduipi <index>` is used with an index exceeding UITTSZ field in **suitt**, the entire instruction has no effect; neither interrupt nor memory access will be processed.
+
+SENDUIPI is an I-type instruction formatted as below:
+
+```txt
+                                     opcode
++------------+-------+-----+-------+---------+
+| index (12) | 00000 | 000 | 00000 | 1110100 | SENDUIPI
++------------+-------+-----+-------+---------+
+```
+
+### URET
+
+> From riscv-privileged-v1.10:
+> The MRET, SRET, or URET instructions are used to return from traps in M-mode, S-mode, or U-mode respectively. When executing an xRET instruction, supposing xPP holds the value y, xIE is set to xPIE; the privilege mode is changed to y; xPIE is set to 1; and xPP is set to U (or M if user-mode is not supported).

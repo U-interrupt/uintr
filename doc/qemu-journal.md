@@ -19,6 +19,136 @@ QEMU 中已经有大量 API 的文档，主要位于 `docs` 目录下。
 
 目前可运行的测例：Linux 自带的 uipi_sample
 
+阅读 Linux 关于 UINTR 系统调用的实现可以注意到，接收方在满足以下条件时可以响应中断：
+
+- 正在被当前核调度，直接进入注册好的用户态中断处理函数
+- 通过系统调用 `sys_uintr_wait` 让权后，接收方进程等待被内核调度后再进入中断处理函数
+- 时间片用尽后被内核重新放入调度队列，接收方等待重新被内核调度后再进入中断处理函数
+
+```c
+int uintr_receiver_wait(void)
+{
+    struct uintr_upid_ctx *upid_ctx;
+    unsigned long flags;
+
+    if (!is_uintr_receiver(current))
+        return -EOPNOTSUPP;
+
+    upid_ctx = current->thread.ui_recv->upid_ctx;
+    // 发送方将中断发给内核
+    upid_ctx->upid->nc.nv = UINTR_KERNEL_VECTOR;
+    // 接收方进入 waiting 状态
+    upid_ctx->waiting = true;
+    // 交给统一的调度队列 uintr_wait_list 进行管理，内核收到用户态中断后会遍历队列进行处理
+    spin_lock_irqsave(&uintr_wait_lock, flags);
+    list_add(&upid_ctx->node, &uintr_wait_list);
+    spin_unlock_irqrestore(&uintr_wait_lock, flags);
+    // 修改当前 task 的状态为 INTERRUPTIBLE
+    set_current_state(TASK_INTERRUPTIBLE);
+    // 运行下一个 task
+    schedule();
+
+    return -EINTR;
+}
+```
+
+目前定义了两种 User Interrupt Notification：
+
+- `UINTR_NOTIFICATION_VECTOR`: 0xec
+- `UINTR_KERNEL_VECTOR`: 0xeb
+
+关于 `UINTR_KERNEL_VECTOR` 的用途，注意到：
+
+```c
+/*
+ * Handler for UINTR_KERNEL_VECTOR.
+ */
+DEFINE_IDTENTRY_SYSVEC(sysvec_uintr_kernel_notification)
+{
+    /* TODO: Add entry-exit tracepoints */
+    ack_APIC_irq();
+    inc_irq_stat(uintr_kernel_notifications);
+
+    uintr_wake_up_process();
+}
+/*
+ * Runs in interrupt context.
+ * Scan through all UPIDs to check if any interrupt is on going.
+ */
+void uintr_wake_up_process(void)
+{
+    struct uintr_upid_ctx *upid_ctx, *tmp;
+    unsigned long flags;
+
+    // 遍历 uintr_wait_list
+    spin_lock_irqsave(&uintr_wait_lock, flags);
+    list_for_each_entry_safe(upid_ctx, tmp, &uintr_wait_list, node) {
+        if (test_bit(UPID_ON, (unsigned long *)&upid_ctx->upid->nc.status)) {
+            set_bit(UPID_SN, (unsigned long *)&upid_ctx->upid->nc.status);
+            upid_ctx->upid->nc.nv = UINTR_NOTIFICATION_VECTOR;
+            upid_ctx->waiting = false;
+            wake_up_process(upid_ctx->task);
+            list_del(&upid_ctx->node);
+        }
+    }
+    spin_unlock_irqrestore(&uintr_wait_lock, flags);
+}
+```
+
+每当 task 被重新调度并返回 user space 前，执行以下函数：
+
+```c
+void switch_uintr_return(void)
+{
+    struct uintr_upid *upid;
+    u64 misc_msr;
+
+    if (is_uintr_receiver(current)) {
+        WARN_ON_ONCE(test_thread_flag(TIF_NEED_FPU_LOAD));
+
+        /* Modify only the relevant bits of the MISC MSR */
+        rdmsrl(MSR_IA32_UINTR_MISC, misc_msr);
+        if (!(misc_msr & GENMASK_ULL(39, 32))) {
+            misc_msr |= (u64)UINTR_NOTIFICATION_VECTOR << 32;
+            wrmsrl(MSR_IA32_UINTR_MISC, misc_msr);
+        }
+
+        /*
+        因为此时 task 被重新调度，需要更新 ndst 对应的 APIC ID
+        同时需要清空 SN 来允许接收中断
+        */
+        upid = current->thread.ui_recv->upid_ctx->upid;
+        upid->nc.ndst = cpu_to_ndst(smp_processor_id());
+        clear_bit(UPID_SN, (unsigned long *)&upid->nc.status);
+
+        /*
+        UPID_SN 已经被清空，此时可以接收新的中断
+        为了让 task 能知道自己在等待的过程中收到了发送方发过来的中断，直接调用 send_IPI_self 触发硬件处理流程： User-Interrupt Notification Identification 和 User-Interrupt Notification Processing；
+        另一种办法是软件进行处理来触发中断，即清空 UPID.PUIR 和 写入 UIRR 寄存器，代码注释提示软件触发中断需要处理和硬件修改 UPID 之间的竞争；
+        根据 intel 文档的描述，以下任何一种情况都可以触发 recognition of pending user interrupt:
+        1. 写入 IA32_UINTR_RR_MSR
+        4. User-interrupt notification processing: 也就是收到中断后硬件处理
+        */
+        if (READ_ONCE(upid->puir))
+            apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
+    }
+}
+
+```
+
+在 manpages 中注意到这样一段描述：
+
+```txt
+A receiver can choose to share the same uintr_fd with multiple senders.
+Since an interrupt with the same vector number would be delivered,  the
+receiver  would  need  to  use  other  mechanisms to identify the exact
+source of the interrupt.
+```
+
+大致意思是说不同的 sender 可能是拿同一个 fd 注册的 uitte ，需要 receiver 应用其他方法来区分 sender 。
+处于同一个中断优先级的 sender 彼此之间无法通过已有机制加以区分，那么这种区分是否是必要的？
+
+
 ## RISC-V 实现
 
 QEMU RISC-V 的实现架构和 x86 的有很大不同。
@@ -221,3 +351,115 @@ x86 的设计中 `SENDUIPI index` 这个指令会根据 `UITTADDR` 寄存器，�
 QEMU 内存读写函数 `void cpu_physical_memory_rw(hwaddr addr, void *buf, hwaddr len, bool is_write)` 位于 `softmmu/physmem.c`。
 
 ### 核间中断 (Hardware Emulation)
+
+#### RISC-V ACLINT
+
+有关 MSI (Message Signalled Interrupts):
+
+- 传统发中断 pin-based out-of-band ：外设有单独引脚，独立于数据总线
+- MSI：处理器和外设之间存在中断控制器，外设通过数据总线给控制器发送更丰富的中断信息，控制器进行处理后再发给处理器，这些信息可以帮助外设和控制器更好地决策发送中断的时机、目标等。
+- 可以增加中断数量
+- pin-based interrupt 和 posted-write 之间的竞争问题：PCI 内存控制器可能会推迟写入 DMA，导致处理器收到中断后立即尝试通过 DMA 读取旧的数据，所以中断控制器需要读取 PCI 内存控制器来判读写入是否完成。MSI write 和 DMA write 之间共用总线，所以不会出现这种异步的竞争问题。
+
+官方文档给出了设计目标
+
+> This RISC-V ACLINT specification defines a set of memory mapped devices which provide inter-processor interrupts (IPI) and timer functionalities for each HART on a multi-HART RISC-V platform.
+
+QEMU 中也给出了相关实现，主要在 `hw/intc` 目录下，有关 RISC-V 的两个几个文件 `riscv_aclint.c`, `riscv_aplic.c` 和 `riscv_imsic.c` 。
+
+```c
+typedef struct RISCVAclintSwiState {
+    /*< private >*/
+    SysBusDevice parent_obj;
+
+    /*< public >*/
+    MemoryRegion mmio;
+    // 起始 hartid
+    uint32_t hartid_base;
+    // hart 总数量
+    uint32_t num_harts;
+    uint32_t sswi;
+    qemu_irq *soft_irqs;
+} RISCVAclintSwiState;
+```
+
+CPU 读 SWI 寄存器的函数如下：
+
+```c
+static uint64_t riscv_aclint_swi_read(void *opaque, hwaddr addr,
+    unsigned size)
+{
+    RISCVAclintSwiState *swi = opaque;
+    // 首先保证读地址在对应 hart 范围内
+    if (addr < (swi->num_harts << 2)) {
+        // 获取对应 hartid
+        size_t hartid = swi->hartid_base + (addr >> 2);
+        // 获取对应 CPU 状态
+        CPUState *cpu = qemu_get_cpu(hartid);
+        CPURISCVState *env = cpu ? cpu->env_ptr : NULL;
+        if (!env) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "aclint-swi: invalid hartid: %zu", hartid);
+        } else if ((addr & 0x3) == 0) {
+            // 返回 SWI 寄存器状态
+            return (swi->sswi) ? 0 : ((env->mip & MIP_MSIP) > 0);
+        }
+    }
+
+    qemu_log_mask(LOG_UNIMP,
+                  "aclint-swi: invalid read: %08x", (uint32_t)addr);
+    return 0;
+}
+```
+
+CPU 写 SWI 寄存器的函数如下：
+
+```c
+static void riscv_aclint_swi_write(void *opaque, hwaddr addr, uint64_t value,
+        unsigned size)
+{
+    RISCVAclintSwiState *swi = opaque;
+    // 首先保证读地址在对应 hart 范围内
+    if (addr < (swi->num_harts << 2)) {
+        // 获取对应 hartid
+        size_t hartid = swi->hartid_base + (addr >> 2);
+        // 获取对应 CPU 状态
+        CPUState *cpu = qemu_get_cpu(hartid);
+        CPURISCVState *env = cpu ? cpu->env_ptr : NULL;
+        if (!env) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "aclint-swi: invalid hartid: %zu", hartid);
+        } else if ((addr & 0x3) == 0) {
+            if (value & 0x1) {
+                // 触发 IRQ ，调用对应 handler 对中断事务进行处理
+                qemu_irq_raise(swi->soft_irqs[hartid - swi->hartid_base]);
+            } else {
+                if (!swi->sswi) {
+                    // 清空 IRQ
+                    qemu_irq_lower(swi->soft_irqs[hartid - swi->hartid_base]);
+                }
+            }
+            return;
+        }
+    }
+
+    qemu_log_mask(LOG_UNIMP,
+                  "aclint-swi: invalid write: %08x", (uint32_t)addr);
+}
+```
+
+QEMU 中每个 memory mapped device 都要对应到 `MemoryRegionOps`：
+
+```c
+static const MemoryRegionOps riscv_aclint_swi_ops = {
+    .read = riscv_aclint_swi_read,
+    .write = riscv_aclint_swi_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4
+    }
+};
+```
+
+调用 `memory_region_init_io`后，对该内存区域的读写就会转发给注册后的函数进行处理。

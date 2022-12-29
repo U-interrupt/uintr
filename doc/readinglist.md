@@ -16,6 +16,7 @@ Relevant documents and papers are listed here.
   - [Video: QEMU support for RISC-V](https://www.youtube.com/watch?v=b5g8u3GA-lo)
   - [N extension](https://gallium70.github.io/rv-n-ext-impl/intro.html)
   - [AIA](https://github.com/riscv/riscv-aia)
+  - [ACLINT](https://github.com/riscv/riscv-aclint/blob/main/riscv-aclint.adoc)
 
 - `Papers`:
   - [SkyBridge](https://ieeexplore.ieee.org/document/9627571)

@@ -75,3 +75,9 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
     - 初始化 `TrapFrame`
   - 用户程序会访问到这些地址（主要是 .bss 段），拿到了没有置为 0 的值，然后就出现了奇怪的行为。所以在分配新物理页帧时应先手动清零，再将程序的数据拷贝过来。
 - 下周计划：先确保修改后 RISC-V N 能工作，进一步了解 AIA、PLIC 等。
+
+## 12.29
+
+- 了解 QEMU aclint 工作原理，见 [qemu-journal](./qemu-journal.md)
+- 写 RISC-V uintr specification，见 [spec](./spec.md)
+- 下周计划：整理当前工作，完善 ppt 并准备开题报告
