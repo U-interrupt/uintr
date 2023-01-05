@@ -2,9 +2,9 @@
 
 ## CSRs
 
-### Supervisor User Interrupt Target Table (suitt) Register
+### User Interrupt Target Table (uitt) Register
 
-The **suitt** is an 64-bit read/write register, formatted as below:
+The **uitt** is an 64-bit read/write register, formatted as below:
 
 ```txt
 +------------+--------------+-------------+----------+
@@ -20,7 +20,7 @@ The **upidaddr** is an 64-bit read/write register which holds the virtual addres
 
 ## Instructions
 
-### SENDUIPI
+### SENDUIPI (TODO)
 
 A new instruction `senduipi <index>` is used for sending a user interrupt. As described in **suitt**, the `index` parameter is used to locate the target user interrupt target table entry (UITTE) with PPN field in **suitt** to get detailed information about the receiver:
 
