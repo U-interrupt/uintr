@@ -81,3 +81,10 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 - 了解 QEMU aclint 工作原理，见 [qemu-journal](./qemu-journal.md)
 - 写 RISC-V uintr specification，见 [spec](./spec.md)
 - 下周计划：整理当前工作，完善 ppt 并准备开题报告
+
+## 1.5
+
+- 对 QEMU 进行代码分析，完善设计思路，更新 ppt
+- **OS classroom**: 
+  - 完成了一部分信号机制的代码，主要位于模块 tsignal 中，参考了 maturin 和 Linux 内核实现
+  - 加入了 uintr 模块对 qemu 加入的指令进行测试
