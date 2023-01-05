@@ -352,7 +352,7 @@ QEMU 内存读写函数 `void cpu_physical_memory_rw(hwaddr addr, void *buf, hwa
 
 ### 核间中断 (Hardware Emulation)
 
-#### RISC-V ACLINT
+#### RISC-V AIA，ACLINT
 
 有关 MSI (Message Signalled Interrupts):
 
@@ -360,6 +360,8 @@ QEMU 内存读写函数 `void cpu_physical_memory_rw(hwaddr addr, void *buf, hwa
 - MSI：处理器和外设之间存在中断控制器，外设通过数据总线给控制器发送更丰富的中断信息，控制器进行处理后再发给处理器，这些信息可以帮助外设和控制器更好地决策发送中断的时机、目标等。
 - 可以增加中断数量
 - pin-based interrupt 和 posted-write 之间的竞争问题：PCI 内存控制器可能会推迟写入 DMA，导致处理器收到中断后立即尝试通过 DMA 读取旧的数据，所以中断控制器需要读取 PCI 内存控制器来判读写入是否完成。MSI write 和 DMA write 之间共用总线，所以不会出现这种异步的竞争问题。
+
+AIA （RISC-V Advanced Interrupt Architecture）
 
 官方文档给出了设计目标
 
@@ -463,3 +465,62 @@ static const MemoryRegionOps riscv_aclint_swi_ops = {
 ```
 
 调用 `memory_region_init_io`后，对该内存区域的读写就会转发给注册后的函数进行处理。
+
+#### QEMU RISC-V VirtIO Board
+
+通过 `-machine virt` 选中，通过 VirtIO 模拟硬件环境，代码位置 `hw/riscv/virt.c`。
+
+从代码中可以看出一系列外设对应的地址：
+
+```c
+static const MemMapEntry virt_memmap[] = {
+    [VIRT_DEBUG] =        {        0x0,         0x100 },
+    [VIRT_MROM] =         {     0x1000,        0xf000 },
+    [VIRT_TEST] =         {   0x100000,        0x1000 },
+    [VIRT_RTC] =          {   0x101000,        0x1000 },
+    [VIRT_CLINT] =        {  0x2000000,       0x10000 },
+    [VIRT_ACLINT_SSWI] =  {  0x2F00000,        0x4000 },
+    [VIRT_PCIE_PIO] =     {  0x3000000,       0x10000 },
+    [VIRT_PLATFORM_BUS] = {  0x4000000,     0x2000000 },
+    [VIRT_PLIC] =         {  0xc000000, VIRT_PLIC_SIZE(VIRT_CPUS_MAX * 2) },
+    [VIRT_APLIC_M] =      {  0xc000000, APLIC_SIZE(VIRT_CPUS_MAX) },
+    [VIRT_APLIC_S] =      {  0xd000000, APLIC_SIZE(VIRT_CPUS_MAX) },
+    [VIRT_UART0] =        { 0x10000000,         0x100 },
+    [VIRT_VIRTIO] =       { 0x10001000,        0x1000 },
+    [VIRT_FW_CFG] =       { 0x10100000,          0x18 },
+    [VIRT_FLASH] =        { 0x20000000,     0x4000000 },
+    [VIRT_IMSIC_M] =      { 0x24000000, VIRT_IMSIC_MAX_SIZE },
+    [VIRT_IMSIC_S] =      { 0x28000000, VIRT_IMSIC_MAX_SIZE },
+    [VIRT_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
+    [VIRT_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
+    [VIRT_DRAM] =         { 0x80000000,           0x0 },
+};
+```
+其中涉及核间中断的外设为 `VIRT_PLIC` ，`VIRT_CLINT` 和 `VIRT_ACLINT_SSWI` ，当然也可以自己注册某些外设。其中可以看到我们比较熟悉的 `VIRT_VIRTIO` 地址映射 `0x10001000, 0x1000` 。
+
+`virt_machine_init` 函数负责初始化 CPU ，外设等。
+
+```c
+static void virt_machine_init(MachineState *machine) {
+/*
+预分配一块内存用于存储设备的地址映射
+    MemoryRegion *system_memory = get_system_memory();
+根据 CPU 插槽数进行遍历，实际 hart 数量由 smp 参数指定，关于这一部分在 hw/riscv/numa.c：
+调用 riscv_aclint_swi_create 建立对 VIRT_ACLINT_SSWI 和 VIRT_CLINT 的映射，并初始化 mtimer
+根据 s->aia_type 进行判断，如果是 VIRT_AIA_TYPE_NONE 就调用 virt_create_plic 初始化 PLIC
+否则调用 virt_create_aia 初始化 AIA
+
+接下来调用一系列函数进行外设初始化：
+virt_create_aia 初始化中断控制器
+memory_region_add_subregion 初始化 RAM 和 Boot ROM
+sysbus_create_simple 将 VirtIO 外设接入
+gpex_pcie_init 初始化 VIRT_PCIE_ECAM 和 VIRT_PCIE_MMIO
+serial_mm_init 初始化串口 VIRT_UART0
+virt_flash_create, virt_flash_map 初始化 flash
+
+最后根据地址映射创建设备树交给上层应用 create_fdt
+*/
+}
+```
+
+
