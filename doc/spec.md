@@ -112,16 +112,15 @@ UINTC Register Map:
 
 A **64 B** register is divided into **8** operations corresponding to the `funct3` field specification of `UIPI`. Operations are aligned to **8 B** for direct load and store in supervisor mode.
 
-|  Offset   | OP |
-|  ----  | ----  |
-| 0x000 | SEND |
-| 0x008 | TEST |
-| 0x010 | READ_HIGH |
-| 0x018 | WRITE_HIGH |
-| 0x020 | ACTIVATE |
-| 0x028 | BLOCK |
-| 0x030 | READ_LOW |
-| 0x038 | WRITE_LOW |
+|  Offset   | OP(R) | OP(W) |
+|  ----  | ----  | ---- |
+| 0x000 | TEST | SEND |
+| 0x008 | READ_LOW | WRITE_LOW |
+| 0x010 | READ_HIGH | WRITE_HIGH |
+| 0x018 | GET_ACTIVATE | SET_ACTIVATE |
+| 0x020 | GET_BLOCK | SET_BLOCK |
+| ... | ... | ... |
+| 0x038 | Reserved | Reserved |
 
 The whole process can be described as below:
 
