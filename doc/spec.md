@@ -2,7 +2,7 @@
 
 ## Introduction
 
-One of the most impressive characteristic of RISC-V is that it uses a simple load-store architecture. So we proposed a new instruction **UIPI(User Inter-Processor Interrupt)** and a new external device `UINTC (User-Interrupt Controller)` to reduce modifications in hardware for implementation and evaluation on Rocket Chip and possible optimizations on memory architecture.
+One of the most impressive characteristic of RISC-V is that it uses a simple load-store architecture. So we proposed a new instruction `UIPI(User Inter-Processor Interrupt)` and a new external device `UINTC (User-Interrupt Controller)` to reduce modifications on hardware for further implementation and evaluation on Rocket Chip and possible optimizations on memory architecture.
 
 We try to prevent following situations when a user can send IPI without trapped into kernel:
 
