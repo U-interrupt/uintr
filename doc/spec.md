@@ -78,6 +78,7 @@ The `funct3` field, which indicates the opration processed by this instruction:
 | 0x2 | READ_HIGH |
 | 0x3 | WRITE_HIGH |
 | 0x4 | ACTIVATE |
+| 0x5 | WAKEUP |
 
 For Sender:
 
@@ -93,13 +94,15 @@ If `uipi op, <index>` is used with an index exceeding Size field in **suist**, o
 
 For Receiver:
 
-An instruction `uipi READ, reg` is used to read pending bits from UINTC.
+An instruction `uipi READ, reg` is used to read pending bits from UINTC with the index in **suirs**.
 
-An instruction `uipi WRITE, reg` is used to write pending bits to UINTC.
+An instruction `uipi WRITE, reg` is used to write pending bits to UINTC with the index in **suirs**.
 
-An instruction `uipi ACTIVATE, 0x1` or `uipi ACTIVATE, 0x0` is used to set or unset the **Active** bit in the entry.
+An instruction `uipi ACTIVATE, 0x1` or `uipi ACTIVATE, 0x0` is used to set or unset the **Active** bit in the entry with the index in **suirs**.
 
 Thus the `Hartid` field in UIRS cannot be modified by user.
+
+An instruction `uipi WAKEUP` is used for sending a user interrupt with the index in **suirs**. A receiver can send a user interrupt to itself with this instruction.
 
 ## UINTC
 
