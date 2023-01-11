@@ -1,5 +1,15 @@
 # RISC-V User-interrupt Specification
 
+## Introduction
+
+One of the most impressive characteristic of RISC-V is that it uses a simple load-store architecture. So we proposed a new instruction **UIPI(User Inter-Processor Interrupt)** and a new external device `UINTC (User-Interrupt Controller)` to reduce modifications in hardware for implementation and evaluation on Rocket Chip and possible optimizations on memory architecture.
+
+We try to prevent following situations when a user can send IPI without trapped into kernel:
+
+1. Malicious sender tries to send an unregistered user interrupt to other harts.
+2. Malicious receiver tries to modify the hartid to redirect a user interrupt to other harts.
+3. The receiver is not running on the target hart and an invalid user interrupt is sent to the hart.
+
 ## User Interrupt Sender Table (suist)
 
 The **suist** is an 64-bit read/write register, formatted as below:
@@ -41,8 +51,7 @@ This register holds the `index` corresponding to a valid entry in UINTC, formatt
 |  Bit Position(s) | Name | Description |
 |  ----  | ----  | ---- |
 | 0  | Active | If this bit is **not** set, no interrupt will be delivered for this target. |
-| 1  | Blocked | If this bit is set, a receiver is blocked and waiting for a user interrupt.  |
-| 15:2  | Reserved | User interrupt processing ignores these bits. |
+| 15:1  | Reserved | User interrupt processing ignores these bits. |
 | 31:16 | Hartid | The integer ID of the hardware thread running the code. |
 | 63:32 | Reserved | User interrupt processing ignores these bits. |
 | 127:64 | Pending Requests | One bit for each user interrupt vector. There is user-interrupt request for a vector if the corresponding bit is 1. |
@@ -69,7 +78,6 @@ The `funct3` field, which indicates the opration processed by this instruction:
 | 0x2 | READ_HIGH |
 | 0x3 | WRITE_HIGH |
 | 0x4 | ACTIVATE |
-| 0x5 | BLOCK |
 
 For Sender:
 
@@ -90,8 +98,6 @@ An instruction `uipi READ, reg` is used to read pending bits from UINTC.
 An instruction `uipi WRITE, reg` is used to write pending bits to UINTC.
 
 An instruction `uipi ACTIVATE, 0x1` or `uipi ACTIVATE, 0x0` is used to set or unset the **Active** bit in the entry.
-
-An instruction `uipi BLOCK, 0x1` or `uipi BLOCK, 0x0` is used to set or unset the **Blocked** bit in the entry.
 
 Thus the `Hartid` field in UIRS cannot be modified by user.
 
@@ -114,18 +120,36 @@ A **64 B** register is divided into **8** operations corresponding to the `funct
 
 |  Offset   | OP(R) | OP(W) |
 |  ----  | ----  | ---- |
-| 0x000 | TEST | SEND |
-| 0x008 | READ_LOW | WRITE_LOW |
-| 0x010 | READ_HIGH | WRITE_HIGH |
-| 0x018 | GET_ACTIVATE | SET_ACTIVATE |
-| 0x020 | GET_BLOCK | SET_BLOCK |
+| 0x00 | TEST | SEND |
+| 0x08 | READ_LOW | WRITE_LOW |
+| 0x10 | READ_HIGH | WRITE_HIGH |
+| 0x18 | GET_ACTIVE | SET_ACTIE |
+| 0x20 | REGISTER | UNREGISTER |
+| 0x28 | Reserved | CLEAR |
 | ... | ... | ... |
-| 0x038 | Reserved | Reserved |
+| 0x38 | Reserved | Reserved |
+
+- SEND and TEST: See `UIPI SEND` and `UIPI TEST`. Value delivered with a store instruction will be ignored.
+- READ_HIGH and WRITE_HIGH: See `UIPI READ` and `UIPI WRITE`.
+- READ_LOW and WRITE_LOW: Supervisor sets hartid and activates user interrupt.
+- GET_ACTIVE and SET_ACTIVE: See `UIPI ACTIVATE`. Value delivered with a store instruction will be ignored.
+- REGISTER: UINTC returns a number no more than **255**. If no available entry exists, UINTC will return `0x10000` instead.
+- UNREGISTER: UINTC recycles an entry with a valid index. Invalid index will be ignored.
+- CLEAR: Value delivered with a store instruction will be ignored. Reset all entries to invalid state.
+
+## API
+
+Currently, we use the same syscalls as proposed by [x86 User Interrupts Support](https://lwn.net/Articles/869140/):
+
+1. A receiver can register/unregister an interrupt handler using the uintr receiver related syscalls: `uintr_register_handler(handler, flags)` and `uintr_unregister_handler(flags)`.
+2. A syscall also allows a receiver to register a vector and create a user interrupt file descriptor - uintr_fd: `uintr_create_fd(vector, flags, &uintr_fd)`.
+3. Any sender with access to uintr_fd can use it to deliver user interrupts: `uintr_register_sender(uintr_fd, flags, &uist_index)`.
+4. A receiver can yield with `uintr_wait()` to wait for a user insterrupt and be scheduled later by special mechanisms.
 
 The whole process can be described as below:
 
 1. A receiver registers a handler and gets a file descriptor. Virtual address of the handler will be written to `utvec`.
-2. A sender registers a vector with a file descriptor shared by the receiver. A new User Interrupt Sender Table (UIST) will be allocated by kernel if not exists. The index of User Interrupt Receiver Status in UINTC will be written to the entry of UIST. The sender then gets an index corresponding to a valid entry of UIST.
+2. A sender registers a vector with a file descriptor shared by the receiver. A new User Interrupt Sender Table (UIST) will be allocated by Supervisor if not exists. The index of User Interrupt Receiver Status in UINTC will be written to the entry of UIST. The sender then gets an index corresponding to a valid entry of UIST.
 3. The sender uses the index to execute a `UIPI SEND, <index>`. The CPU just does something like address translation:
    1. CPU will read from memory to find the entry of UIST.
    2. A writing request like `sd 0x1, SEND(base)` will be posted to UINTC.
@@ -133,10 +157,5 @@ The whole process can be described as below:
    4. External interrupt will be delivered to target hart if `Active` bit is 1.
 4. With User external interrupt delegated to User and `uie.UEIE & uip.UEIP & ustatus.UIE == 1`, the receiver will jump to `utvec` to handle the interrupt immediately if it is running on the target hart. Just like trap and interrupt handled in Supervisor Mode, a `uret` will help get back to normal execution with saved `pc` in `uepc`.
 
-We use a new instruction `UIPI` and a new external deviec `UINTC` to prevent:
+In Supervisor Mode, a Supervisor can do all the things described above just though `ld` and `sd` with previously mapped device address.
 
-1. Malicious sender tries to send an unregistered user interrupt to other harts.
-2. Malicious receiver tries to modify the hartid to redirect a user interrupt to other harts.
-3. The receiver is not running on the target hart and an invalid user interrupt is sent to the hart.
-
-In Supervisor Mode, a kernel can do all the things described above just though `ld` and `sd` with previously mapped device address.
