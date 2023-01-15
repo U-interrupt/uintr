@@ -132,11 +132,11 @@ A **64 B** register is divided into **8** operations corresponding to the `funct
 | ... | ... | ... |
 | 0x38 | Reserved | Reserved |
 
-- SEND and TEST: See `UIPI SEND` and `UIPI TEST`. Value delivered with a store instruction will be ignored.
-- READ_HIGH and WRITE_HIGH: See `UIPI READ` and `UIPI WRITE`.
+- SEND and TEST: See `uipi SEND` and `uipi TEST`. Value delivered with a store instruction will be ignored.
+- READ_HIGH and WRITE_HIGH: See `uipi READ` and `uipi WRITE`.
 - READ_LOW and WRITE_LOW: Supervisor sets hartid and activates user interrupt.
-- GET_ACTIVE and SET_ACTIVE: See `UIPI ACTIVATE`. Value delivered with a store instruction will be ignored.
-- REGISTER: UINTC returns a number no more than **255**. If no available entry exists, UINTC will return `0x10000` instead.
+- GET_ACTIVE and SET_ACTIVE: See `uipi ACTIVATE`. Value delivered with a store instruction will be ignored.
+- REGISTER: UINTC returns a number no more than **255**. If no available entry exists, UINTC will return `0xffff_ffff_ffff_ffff` instead.
 - UNREGISTER: UINTC recycles an entry with a valid index. Invalid index will be ignored.
 - CLEAR: Value delivered with a store instruction will be ignored. Reset all entries to invalid state.
 
@@ -153,7 +153,7 @@ The whole process can be described as below:
 
 1. A receiver registers a handler and gets a file descriptor. Virtual address of the handler will be written to `utvec`.
 2. A sender registers a vector with a file descriptor shared by the receiver. A new User Interrupt Sender Table (UIST) will be allocated by Supervisor if not exists. The index of User Interrupt Receiver Status in UINTC will be written to the entry of UIST. The sender then gets an index corresponding to a valid entry of UIST.
-3. The sender uses the index to execute a `UIPI SEND, <index>`. The CPU just does something like address translation:
+3. The sender uses the index to execute a `uipi SEND, <index>`. The CPU just does something like address translation:
    1. CPU will read from memory to find the entry of UIST.
    2. A writing request like `sd 0x1, SEND(base)` will be posted to UINTC.
    3. UINTC writes the corresponding bit in the `Pending` field.
@@ -161,4 +161,3 @@ The whole process can be described as below:
 4. With User external interrupt delegated to User and `uie.UEIE & uip.UEIP & ustatus.UIE == 1`, the receiver will jump to `utvec` to handle the interrupt immediately if it is running on the target hart. Just like trap and interrupt handled in Supervisor Mode, a `uret` will help get back to normal execution with saved `pc` in `uepc`.
 
 In Supervisor Mode, a Supervisor can do all the things described above just though `ld` and `sd` with previously mapped device address.
-

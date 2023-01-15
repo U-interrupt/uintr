@@ -148,7 +148,6 @@ source of the interrupt.
 大致意思是说不同的 sender 可能是拿同一个 fd 注册的 uitte ，需要 receiver 应用其他方法来区分 sender 。
 处于同一个中断优先级的 sender 彼此之间无法通过已有机制加以区分，那么这种区分是否是必要的？
 
-
 ## RISC-V 实现
 
 QEMU RISC-V 的实现架构和 x86 的有很大不同。
@@ -496,6 +495,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_DRAM] =         { 0x80000000,           0x0 },
 };
 ```
+
 其中涉及核间中断的外设为 `VIRT_PLIC` ，`VIRT_CLINT` 和 `VIRT_ACLINT_SSWI` ，当然也可以自己注册某些外设。其中可以看到我们比较熟悉的 `VIRT_VIRTIO` 地址映射 `0x10001000, 0x1000` 。
 
 `virt_machine_init` 函数负责初始化 CPU ，外设等。
@@ -522,5 +522,3 @@ virt_flash_create, virt_flash_map 初始化 flash
 */
 }
 ```
-
-
