@@ -39,9 +39,9 @@ A user interrupt sender table might take up several pages in memory, each entry 
 The **suirs** is an 64-bit read/write register, formatted as below:
 
 ```txt
-+------------+---------------+-----------+
-| Enable (1) | Reserved (55) | index (8) |
-+------------+---------------+-----------+
++------------+---------------+------------+
+| Enable (1) | Reserved (47) | index (16) |
++------------+---------------+------------+
 ```
 
 This register cannot be accessed directly in user privilege.
@@ -108,18 +108,18 @@ An instruction `uipi WAKEUP` is used for sending a user interrupt with the index
 
 A external device manages user interrupt, holding a user interrupt receiver table.
 
-The maximum number of **Receivers** supported by a single UINTC device is **256**.
+The maximum number of **Receivers** supported by a single UINTC device is **512**.
 
 UINTC Register Map:
 
 | Offset |  Width | Attr | Name | Description |
 |  ----  | ----  |  ----  | ----  |  ----  |
-| 0x0000_0000 | 64B | RW | UIRS0 | Index 0 User Interrupt Receiver Status |
-| 0x0000_0040 | 64B | RW | UIRS1 | Index 1 User Interrupt Receiver Status |
+| 0x0000_0000 | 32B | RW | UIRS0 | Index 0 User Interrupt Receiver Status |
+| 0x0000_0040 | 32B | RW | UIRS1 | Index 1 User Interrupt Receiver Status |
 | ... | ... | ... | ... | ... |
-| 0x0000_3FC0 | 64B | RW | UIRS255 | Index 255 User Interrupt Receiver Status |
+| 0x0000_3FC0 | 32B | RW | UIRS511 | Index 511 User Interrupt Receiver Status |
 
-A **64 B** register is divided into **8** operations corresponding to the `funct3` field specification of `UIPI`. Operations are aligned to **8 B** for direct load and store in supervisor mode.
+A **32 B** register is divided into **4** operations corresponding to the `funct3` field specification of `UIPI`. Operations are aligned to **8 B** for direct load and store in supervisor mode.
 
 |  Offset   | OP(R) | OP(W) |
 |  ----  | ----  | ---- |
@@ -127,17 +127,11 @@ A **64 B** register is divided into **8** operations corresponding to the `funct
 | 0x08 | READ_LOW | WRITE_LOW |
 | 0x10 | READ_HIGH | WRITE_HIGH |
 | 0x18 | GET_ACTIVE | SET_ACTIVE |
-| 0x20 | Reserved | CLEAR |
-| ... | ... | ... |
-| 0x38 | Reserved | Reserved |
 
 - SEND and TEST: See `uipi SEND` and `uipi TEST`. Value delivered with a store instruction will be ignored.
 - READ_HIGH and WRITE_HIGH: See `uipi READ` and `uipi WRITE`.
 - READ_LOW and WRITE_LOW: Supervisor sets hartid and activates user interrupt.
 - GET_ACTIVE and SET_ACTIVE: See `uipi ACTIVATE`. Value delivered with a store instruction will be ignored.
-- REGISTER: UINTC returns a number no more than **255**. If no available entry exists, UINTC will return `0xffff_ffff_ffff_ffff` instead.
-- UNREGISTER: UINTC recycles an entry with a valid index. Invalid index will be ignored.
-- CLEAR: Value delivered with a store instruction will be ignored. Reset all entries to invalid state.
 
 ## API
 
