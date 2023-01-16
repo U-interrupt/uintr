@@ -98,6 +98,7 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 3. 接收方可以不需要使用uipi指令来读用户态中断请求，而是直接访问寄存器；中断控制器只需要维护处于运行状态的进程的信息；
 
 关于 1 ，ecall 在 CPU 中的处理流程为取指令，译码，触发 Environment call from X-mode ，X 可以是 M，S，U 三个中的任何一个，异常会在指令 commit 阶段进行处理。如果将 ecall 向 UIPI 方向扩展，就会引入：向 sysbus 发起读写请求，写回寄存器堆，有选择地不触发异常等。这无疑让 ecall 本身变得臃肿不堪，且不太适合这条指令本来的含义。现阶段 UIPI 指令的设计方式，我从 XPC Engine，蜂鸟 E203 获得了一些灵感，打算做成一块协处理器，里面加入这条指令的一系列处理和优化。
+
 关于 3 ，为什么要把一部分放在内存里，一部分放在外设里？
 
 注意到 intel 一条 senduipi 指令会在硬件中做这样几个事：拿 index 查 sender 的 UITT，拿 UITT 中的 UPIDADDR 读内存，处理之后再把 UPID 写回到内存，最后通过 APIC 发中断，这样总共就经过了三次访存，显然不太适合在精简指令集中采用，且硬件设计出来会非常复杂（多流水段状态维护，清空错误路径上的写请求）。
