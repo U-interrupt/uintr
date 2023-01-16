@@ -127,8 +127,7 @@ A **64 B** register is divided into **8** operations corresponding to the `funct
 | 0x08 | READ_LOW | WRITE_LOW |
 | 0x10 | READ_HIGH | WRITE_HIGH |
 | 0x18 | GET_ACTIVE | SET_ACTIVE |
-| 0x20 | REGISTER | UNREGISTER |
-| 0x28 | Reserved | CLEAR |
+| 0x20 | Reserved | CLEAR |
 | ... | ... | ... |
 | 0x38 | Reserved | Reserved |
 
