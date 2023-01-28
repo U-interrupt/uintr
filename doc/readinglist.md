@@ -30,4 +30,4 @@ Relevant documents and papers are listed here.
 - `Rust`:
   - [Object Safety](https://doc.rust-lang.org/reference/items/traits.html#object-safety) and [RFC](https://github.com/rust-lang/rfcs/blob/master/text/0255-object-safety.md)
 
-- [Linux Device Drivers 3rd](https://lwn.net/Kernel/LDD3/)
+- [OpenSBI Domain Support](https://github.com/riscv-software-src/opensbi/blob/master/docs/domain_support.md)

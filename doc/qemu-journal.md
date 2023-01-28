@@ -522,3 +522,283 @@ virt_flash_create, virt_flash_map 初始化 flash
 */
 }
 ```
+
+#### UINTC 实现
+
+参考 `riscv_aclint` 实现 **UINTC**。
+
+观察到 aclint，aplic 等设备会调用 `riscv_cpu_claim_interrupts`，用来将中断信号唯一绑定至某中断控制器，为了简化代码实现，直接将 UINTC 连接到 USIP 。
+
+```c
+static void riscv_uintc_realize(DeviceState *dev, Error **errp)
+{
+    int i;
+    RISCVUintcState *uintc = RISCV_UINTC(dev);
+
+    memory_region_init_io(&uintc->mmio, OBJECT(dev), &riscv_uintc_ops, uintc,
+                          TYPE_RISCV_UINTC, RISCV_UINTC_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &uintc->mmio);
+
+    uintc->uirs = g_new0(RISCVUintcUIRS, uintc->num_harts);
+
+    /* Create output IRQ lines */
+    uintc->soft_irqs = g_new(qemu_irq, uintc->num_harts);
+    qdev_init_gpio_out(dev, uintc->soft_irqs, uintc->num_harts);
+
+    for (i = 0; i < uintc->num_harts; i++) {
+        RISCVCPU *cpu = RISCV_CPU(qemu_get_cpu(uintc->hartid_base + i));
+        
+        /* Claim software interrupt bits */
+        if (riscv_cpu_claim_interrupts(cpu, MIP_USIP) < 0) {
+            error_report("USIP already claimed");
+            exit(1);
+        }
+    }
+}
+```
+
+`riscv_uintc_realize` 完成 `uirs` 表、中断状态 `qemu_irq` 的内存分配。调用 `memory_region_init_io` 和 `sysbus_init_mmio` 对 UINTC 占用的地址空间进行初始化，绑定读写函数。
+
+```c
+DeviceState *riscv_uintc_create(hwaddr addr, uint32_t hartid_base, uint32_t num_harts)
+{
+    int i;
+    DeviceState *dev = qdev_new(TYPE_RISCV_UINTC);
+
+    assert(num_harts <= RISCV_UINTC_MAX_HARTS);
+    assert(!(addr & 0x1f));
+
+    qdev_prop_set_uint32(dev, "hartid-base", hartid_base);
+    qdev_prop_set_uint32(dev, "num-harts", num_harts);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
+
+    for (i = 0; i < num_harts; i++) {
+        CPUState *cpu = qemu_get_cpu(hartid_base + i);
+        RISCVCPU *rvcpu = RISCV_CPU(cpu);
+
+        qdev_connect_gpio_out(dev, i, qdev_get_gpio_in(DEVICE(rvcpu), IRQ_U_SOFT));
+    }
+
+    return dev;
+}
+```
+
+`riscv_uintc_create` 由外部 `board` 进行调用，负责将 GPIO 端口与 CPU 内部 IRQ_U_SOFT 连接起来，根据外部传入的地址完成地址空间的映射。
+
+关于 IRQ 的注册：
+
+```c
+struct IRQState {
+    Object parent_obj;
+
+    qemu_irq_handler handler;
+    void *opaque;
+    int n;
+};
+
+typedef struct IRQState *qemu_irq;
+
+typedef void (*qemu_irq_handler)(void *opaque, int n, int level);
+
+void qemu_set_irq(qemu_irq irq, int level)
+{
+    if (!irq)
+        return;
+
+    irq->handler(irq->opaque, irq->n, level);
+}
+
+static inline void qemu_irq_raise(qemu_irq irq)
+{
+    qemu_set_irq(irq, 1);
+}
+
+static inline void qemu_irq_lower(qemu_irq irq)
+{
+    qemu_set_irq(irq, 0);
+}
+```
+
+定义 `IRQState` 包含不同设备注册的 `qemu_irq_handler` ，中断高电平触发。`qemu_irq_handler` 已经预先在 CPU 中注册，GPIO 的输出引脚只需要将指针指向对应 `IRQState` 实例即可。
+
+```c
+static void riscv_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    cpu_set_cpustate_pointers(cpu);
+
+#ifndef CONFIG_USER_ONLY
+    qdev_init_gpio_in(DEVICE(cpu), riscv_cpu_set_irq,
+                      IRQ_LOCAL_MAX + IRQ_LOCAL_GUEST_MAX);
+#endif /* CONFIG_USER_ONLY */
+}
+```
+
+在 `virt.c` 中添加 UINTC 之后，发现在 S 态访问会报 Store Fault，查看 OpenSBI 源码和文档后，发现 OpenSBI 存在 Domain 机制：
+
+- 一个 Hart 只能运行在某个 Domain 中
+- SBI 调用只能访问或影响同一个 Domain 中的 Hart
+- 运行在 S 态或 U 态的 Hart 只能访问 Domain 中分配好的地址空间
+
+默认将 ROOT Domain 分配给所有 Hart， 主要存在两类地址空间：S 态和 U 态不可访问，用于保护 SBI 管理的硬件设备；`order=__riscv_xlen`，S 态和 U 态可以访问的全部地址空间。
+
+运行 QEMU 指定参数 `-bios default` 后，打印关于 Domain 的信息：
+
+```txt
+Domain0 Name              : root
+Domain0 Boot HART         : 0
+Domain0 HARTs             : 0*,1*,2*,3*
+Domain0 Region00          : 0x0000000002000000-0x000000000200ffff (I)
+Domain0 Region01          : 0x0000000080000000-0x000000008007ffff ()
+Domain0 Region02          : 0x0000000000000000-0xffffffffffffffff (R,W,X)
+Domain0 Next Address      : 0x0000000080200000
+Domain0 Next Arg1         : 0x00000000bf000000
+Domain0 Next Mode         : S-mode
+Domain0 SysReset          : yes
+```
+
+相关函数位于 OpenSBI 的 `sbi_domain_dump` 函数，可以看出 `Domain Region00` 刚好为 `VIRT_CLINT` 占用的地址空间，这一部分不可以被 S 态或 U 态访问。
+
+OpenSBI 通过 `sbi_hart_pmp_configure` 读取 Domain 信息并设置相关寄存器来限制 S 态和 U 态对某些物理地址的访问。
+
+```c
+int pmp_set(unsigned int n, unsigned long prot, unsigned long addr,
+        unsigned long log2len)
+{
+    int pmpcfg_csr, pmpcfg_shift, pmpaddr_csr;
+    unsigned long cfgmask, pmpcfg;
+    unsigned long addrmask, pmpaddr;
+
+    /* check parameters */
+    if (n >= PMP_COUNT || log2len > __riscv_xlen || log2len < PMP_SHIFT)
+        return SBI_EINVAL;
+
+    /* calculate PMP register and offset */
+    #if __riscv_xlen == 32
+    pmpcfg_csr   = CSR_PMPCFG0 + (n >> 2);
+    pmpcfg_shift = (n & 3) << 3;
+    #elif __riscv_xlen == 64
+    pmpcfg_csr   = (CSR_PMPCFG0 + (n >> 2)) & ~1;
+    pmpcfg_shift = (n & 7) << 3;
+    #else
+    # error "Unexpected __riscv_xlen"
+    #endif
+    pmpaddr_csr = CSR_PMPADDR0 + n;
+
+    /* encode PMP config */
+    prot &= ~PMP_A;
+    prot |= (log2len == PMP_SHIFT) ? PMP_A_NA4 : PMP_A_NAPOT;
+    cfgmask = ~(0xffUL << pmpcfg_shift);
+    pmpcfg = (csr_read_num(pmpcfg_csr) & cfgmask);
+    pmpcfg |= ((prot << pmpcfg_shift) & ~cfgmask);
+
+    /* encode PMP address */
+    if (log2len == PMP_SHIFT) {
+        pmpaddr = (addr >> PMP_SHIFT);
+    } else {
+        if (log2len == __riscv_xlen) {
+            pmpaddr = -1UL;
+        } else {
+            addrmask = (1UL << (log2len - PMP_SHIFT)) - 1;
+            pmpaddr	= ((addr >> PMP_SHIFT) & ~addrmask);
+            pmpaddr |= (addrmask >> 1);
+        }
+    }
+
+    /* write csrs */
+    csr_write_num(pmpaddr_csr, pmpaddr);
+    csr_write_num(pmpcfg_csr, pmpcfg);
+
+    return 0;
+}
+
+int sbi_hart_pmp_configure(struct sbi_scratch *scratch)
+{
+    ...
+/*
+* If permissions are to be enforced for all modes on this
+* region, the lock bit should be set.
+*/
+if (reg->flags & SBI_DOMAIN_MEMREGION_ENF_PERMISSIONS)
+    pmp_flags |= PMP_L;
+
+if (reg->flags & SBI_DOMAIN_MEMREGION_SU_READABLE)
+    pmp_flags |= PMP_R;
+if (reg->flags & SBI_DOMAIN_MEMREGION_SU_WRITABLE)
+    pmp_flags |= PMP_W;
+if (reg->flags & SBI_DOMAIN_MEMREGION_SU_EXECUTABLE)
+    pmp_flags |= PMP_X;
+
+pmp_addr =  reg->base >> PMP_SHIFT;
+if (pmp_gran_log2 <= reg->order && pmp_addr < pmp_addr_max)
+    pmp_set(pmp_idx++, pmp_flags, reg->base, reg->order);
+    ...
+}
+```
+
+通过阅读 OpenSBI 中对 PMP 的处理可以进一步验证，当 `log2len == __riscv_xlen` 时，地址寄存器被设置为最大值，该寄存器为 PMP 地址寄存器序列中的最后一个。由于在初始化的过程中，OpenSBI 将自己占用的代码和数据空间设置了保护，导致在不修改 OpenSBI 的前提下，低于 `fw_addr` 的所有未分配给地址都无法被访问到，所以解决问题的关键就变成了找一段没有被 OpenSBI 设置保护的地址空间。为了简化实现，暂时将 UINTC 放在内存之后的区域，也就是 `0x9000_0000` 后面。
+
+通过 GDB 查看 PMP 内容：
+
+```txt
+(gdb) info reg pmpcfg0 pmpaddr0 pmpaddr1 pmpaddr2
+pmpcfg0        0x1f1818 2037784
+pmpaddr0       0x801fff 8396799
+pmpaddr1       0x20007fff       536903679
+pmpaddr2       0xffffffffffffffff       -1
+```
+
+以上貌似并没有对访问区间加以限制，于是从异常着手开始研究：
+
+发现抛出的异常位于 `riscv_cpu_do_transaction_failed`，这是一个用来注册 `cpu_transaction_failed` 的回调函数，这一函数位于 `io_writex`，发现错误来源为 `memory_region_dispatch_write` 没有返回 `MEMTX_OK`。
+
+进入 `memory_region_dispatch_write` 发现是 `memory_region_access_valid` 返回了 false 。这一函数会根据错误输出一系列 `LOG_GUEST_ERROR` ，因此在运行 `qemu-system-riscv64` 指定参数 `-D <log file> -d guest_errors` 定位输出位置和错误原因为：
+
+```txt
+virtio_mmio_write: attempt to write guest features with guest_features_sel > 0 in legacy mode
+Invalid write at addr 0x20, size 8, region 'riscv.uintc', reason: invalid size (min:32 max:32)
+!memory_region_access_valid(mr, addr, size, true, attrs) 
+io_writex cpu_transaction_failed: physaddr=0xc0000020
+riscv_cpu_do_transaction_failed!
+```
+
+可以发现是 UINTC 在实现的过程中参数给错了。
+
+另外，通过 `qemu-system-riscv64 -d ?` 查看支持的 `loglevel`。
+
+修复问题后，观察输出发现，read 和 write 操作会默认将读写拆分为粒度为 4 字节的若干次读写，需要对代码进行修改和处理。
+
+读取 sip 寄存器，发现 USIP 位并没有置为 1,查看 QEMU 代码发现：
+
+```c
+static RISCVException rmw_sip64(CPURISCVState *env, int csrno,
+                                uint64_t *ret_val,
+                                uint64_t new_val, uint64_t wr_mask)
+{
+    ...
+    if (ret_val) {
+        *ret_val &= env->mideleg & (S_MODE_INTERRUPTS | U_MODE_INTERRUPTS);
+    }
+    ...
+}
+```
+
+`mideleg` 当前值为 `0x0000000000001666`，因此读出来的结果是零。
+
+一种可能的解决办法是修改 OpenSBI 来支持 N 扩展，具体实现位于 `lib/sbi/sbi_hart.c`。
+
+在 `static int delegate_traps(struct sbi_scratch *scratch)` 函数内添加一行 `interrupts |= MIP_USIP | MIP_UTIP | MIP_UEIP;` 即可。
+
+执行以下命令编译 OpenSBI
+
+```sh
+export CROSS_COMPILE=riscv64-unknown-linux-gnu-
+make all PLATFORM=generic PLATFORM_RISCV_XLEN=64
+```
+
+注意 QEMU 默认使用的 bios 位于 `pc-bios/opensbi-riscv64-generic-fw_dynamic.bin` ，因此我们也采用新编译好的 `fw_dynamic.bin` ，使用其他的会出错。
+
+**2023.1.28**：目前可以在 S 态通过 UINTC 发送用户态中断并看到 USIP 被设置为 1 。
+
