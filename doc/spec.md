@@ -49,7 +49,7 @@ A user interrupt sender table might take up several pages in memory, each entry 
 
 ## User Interrupt Receiver Status (suirs)
 
-The **suirs** is an 64-bit read/write register, formatted as below:
+The **suirs** is an SXLEN-bit read/write register, formatted as below:
 
 User interrupt receiver status **suirs** when `SXLEN=32`:
 
@@ -82,7 +82,7 @@ UINTC receiver status entry when `SXLEN=32`:
 | 63:32 | Pending Requests | One bit for each user interrupt vector. There is user-interrupt request for a vector if the corresponding bit is 1. |
 | 127:64 | Reserved | User interrupt processing ignores these bits. |
 
-UINTC receiver status entry when `SXLEN=64`: 
+UINTC receiver status entry when `SXLEN=64`:
 
 |  Bit Position(s) | Name | Description |
 |  ----  | ----  | ---- |
@@ -93,18 +93,20 @@ UINTC receiver status entry when `SXLEN=64`:
 | 63:32 | Reserved | User interrupt processing ignores these bits. |
 | 127:64 | Pending Requests | One bit for each user interrupt vector. There is user-interrupt request for a vector if the corresponding bit is 1. |
 
+## User Interrupt Requests (uuirq)
+
+The **uuirq** is an SXLEN-bit read/write register, corresponding to **Pending Requests** field of UINTC receiver status.
+
 ## UIPI
 
 UIPI is an I-type instruction formatted as below:
 
 ```txt
- 31       20 19   15 14    12 11  7 6       0 
-+-----------+-------+-------------+-----+---------+
-| imm[11:0] | 00000 | uipi opcode | reg | 1110100 | UIPI
-+-----------+-------+-------------+-----+---------+
+ 31       20 19   15 14          12 11   7 6       0 
++-----------+-------+-------------+-------+---------+
+| imm[11:0] | 00000 | uipi opcode | 00000 | 1110100 | UIPI
++-----------+-------+-------------+-------+---------+
 ```
-
-A UIPI instruction may execute like `uipi op, imm` whose **reg** field is `zero` by default; or like `uipi op, imm, reg` with a general register specified by user.
 
 The **uipi opcode** field, which indicates the opration processed by this instruction:
 
@@ -127,9 +129,9 @@ If `uipi SEND, <index>` is executed with an index exceeding **Size** field in **
 
 For Receiver:
 
-An instruction `uipi READ, reg` is used to read pending bits from UINTC with the index in **suirs**.
+An instruction `uipi READ` is used to read pending bits from UINTC to **uuirq** with the index in **suirs**.
 
-An instruction `uipi WRITE, reg` is used to write pending bits to UINTC with the index in **suirs**.
+An instruction `uipi WRITE` is used to write pending bits to UINTC from **uuirq** with the index in **suirs**.
 
 An instruction `uipi ACTIVATE, 0x1` or `uipi ACTIVATE, 0x0` is used to set or unset the **Active** field in the entry with the index in **suirs**.
 
