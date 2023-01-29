@@ -102,10 +102,10 @@ The **uuirq** is an SXLEN-bit read/write register, corresponding to **Pending Re
 UIPI is an I-type instruction formatted as below:
 
 ```txt
- 31       20 19   15 14          12 11   7 6       0 
-+-----------+-------+-------------+-------+---------+
-| imm[11:0] | 00000 | uipi opcode | 00000 | 1110100 | UIPI
-+-----------+-------+-------------+-------+---------+
+ 31          20 19   15 14          12 11   7 6       0 
++--------------+-------+-------------+-------+---------+
+| 000000000000 | index | uipi opcode | 00000 | 1111011 | UIPI
++--------------+-------+-------------+-------+---------+
 ```
 
 The **uipi opcode** field, which indicates the opration processed by this instruction:
@@ -116,6 +116,7 @@ The **uipi opcode** field, which indicates the opration processed by this instru
 | 0x1 | READ |
 | 0x2 | WRITE |
 | 0x3 | ACTIVATE |
+| 0x4 | DEACTIVATE |
 
 For Sender:
 
@@ -133,7 +134,7 @@ An instruction `uipi READ` is used to read pending bits from UINTC to **uuirq** 
 
 An instruction `uipi WRITE` is used to write pending bits to UINTC from **uuirq** with the index in **suirs**.
 
-An instruction `uipi ACTIVATE, 0x1` or `uipi ACTIVATE, 0x0` is used to set or unset the **Active** field in the entry with the index in **suirs**.
+An instruction `uipi ACTIVATE` or `uipi DEACTIVATE` is used to set or unset the **Active** field in the entry with the index in **suirs**.
 
 Thus the **Hartid** and **Mode** field in UIRS cannot be modified by user.
 
