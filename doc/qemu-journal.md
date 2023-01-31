@@ -175,6 +175,11 @@ QEMU 指令翻译的过程：`Guest Instructions -> TCG (Tiny Code Generator) op
 
 RISC-V 指令集扩展模块化，QEMU 在翻译指令的时候也按照这个逻辑处理。
 
+#### UIPI 实现
+
+QEMU 有一套自己的翻译机制，类似于 CPU 的 decoder，需要修改模式串来帮助 QEMU 在执行到指令时进行匹配并调用 helper 。
+
+
 ### CPU 状态（Target Emulation）
 
 中断异常、CSR、CSR bits 等定义位于 `target/riscv/cpu_bits.h` 。
@@ -801,4 +806,5 @@ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64
 注意 QEMU 默认使用的 bios 位于 `pc-bios/opensbi-riscv64-generic-fw_dynamic.bin` ，因此我们也采用新编译好的 `fw_dynamic.bin` ，使用其他的会出错。
 
 **2023.1.28**：目前可以在 S 态通过 UINTC 发送用户态中断并看到 USIP 被设置为 1 。
+
 

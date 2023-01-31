@@ -93,19 +93,15 @@ UINTC receiver status entry when `SXLEN=64`:
 | 63:32 | Reserved | User interrupt processing ignores these bits. |
 | 127:64 | Pending Requests | One bit for each user interrupt vector. There is user-interrupt request for a vector if the corresponding bit is 1. |
 
-## User Interrupt Requests (uuirq)
-
-The **uuirq** is an SXLEN-bit read/write register, corresponding to **Pending Requests** field of UINTC receiver status.
-
 ## UIPI
 
 UIPI is an I-type instruction formatted as below:
 
 ```txt
- 31          20 19   15 14          12 11   7 6       0 
-+--------------+-------+-------------+-------+---------+
-| 000000000000 | index | uipi opcode | 00000 | 1111011 | UIPI
-+--------------+-------+-------------+-------+---------+
+ 31        20 19   15 14   12 11   7 6        0 
++-------------+-------+-----+------+---------+
+| uipi opcode |  rs1  | 010 |  rd  | 1111011 | UIPI I-type
++-------------+-------+-----+------+---------+
 ```
 
 The **uipi opcode** field, which indicates the opration processed by this instruction:
@@ -130,9 +126,7 @@ If `uipi SEND, <index>` is executed with an index exceeding **Size** field in **
 
 For Receiver:
 
-An instruction `uipi READ` is used to read pending bits from UINTC to **uuirq** with the index in **suirs**.
-
-An instruction `uipi WRITE` is used to write pending bits to UINTC from **uuirq** with the index in **suirs**.
+An instruction `uipi READ, <reg>`(`uipi WRITE, <reg>`) is used to read pending bits from (write to) UINTC with the index in **suirs**. **rs1** filed is wired to zero for `READ`, while **rd** field is wired to zero for `WRITE`.
 
 An instruction `uipi ACTIVATE` or `uipi DEACTIVATE` is used to set or unset the **Active** field in the entry with the index in **suirs**.
 
