@@ -13,6 +13,11 @@ We try to prevent following situations when a user can send IPI without trapped 
 2. Malicious receiver tries to modify the hartid to redirect a user interrupt to other harts.
 3. The receiver is not running on the target hart and an invalid user interrupt is sent to the hart.
 
+
+## User Interrupt Configuration (suicfg)
+
+The **suicfg** is an SXLEN-bit read/write register, which indicates the base address of UINTC. 
+
 ## User Interrupt Sender Table (suist)
 
 The **suist** is an SXLEN-bit read/write register, formatted as below:

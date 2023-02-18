@@ -175,9 +175,31 @@ QEMU 指令翻译的过程：`Guest Instructions -> TCG (Tiny Code Generator) op
 
 RISC-V 指令集扩展模块化，QEMU 在翻译指令的时候也按照这个逻辑处理。
 
-#### UIPI 实现
-
 QEMU 有一套自己的翻译机制，类似于 CPU 的 decoder，需要修改模式串来帮助 QEMU 在执行到指令时进行匹配并调用 helper 。
+
+以 uret 指令为例，在 `target/riscv/insn_trans` 目录中有各种指令的翻译过程，主要用来将指令解析的结果（寄存器，立即数等）传递给 QEMU 内部的函数，将 guest 的指令拆解为 host 的指令来模拟目标指令的功能。
+
+对于 uret 等指令来说，指令的执行涉及到较多 CPU 状态的变化，会对 pc ，CSR 等产生影响，因此需要利用封装后的 helper 函数来辅助完成。 helper 的定义位于 `target/riscv/helper.h`，通过宏定义 `DEF_HELPER_x` 来声明 helper 函数，例如：
+
+```c
+DEF_HELPER_1(uret, tl, env)
+DEF_HELPER_4(csrrw, tl, env, int, tl, tl)
+```
+
+其中第一个参数对应 `helper_<name>` 中的 name ，第二参数代表函数的返回值，`tl` 表示 `target_ulong` ，后面的参数都是 helper 函数传入的参数。有了以上的参考，我们可以定义其他 helper：
+
+```c
+DEF_HELPER_2(uipi_write, void, env, tl)
+
+void helper_uipi_write(CPURISCVState *env, target_ulong data) {
+    if (uipi_enabled(env, env->suirs)) {
+        target_ulong uintc_addr = UINTC_HIGH(env->suicfg, SUIRS_INDEX(env->suirs));
+        qemu_log("UIPI WRITE %lx %lx\n", uintc_addr, data);
+    }
+}
+```
+
+第四个参数传入 `UIPI WRITE` 写入的 `data`。
 
 
 ### CPU 状态（Target Emulation）
@@ -806,5 +828,4 @@ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64
 注意 QEMU 默认使用的 bios 位于 `pc-bios/opensbi-riscv64-generic-fw_dynamic.bin` ，因此我们也采用新编译好的 `fw_dynamic.bin` ，使用其他的会出错。
 
 **2023.1.28**：目前可以在 S 态通过 UINTC 发送用户态中断并看到 USIP 被设置为 1 。
-
 
