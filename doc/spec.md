@@ -1,7 +1,7 @@
 # RISC-V User-interrupt Specification
 
-> Version: 0.1.0
-> Date: 2023.01.18
+> Version: 0.1.1
+> Date: 2023.02.19
 
 ## Introduction
 
@@ -184,8 +184,8 @@ The whole process can be described as below:
    2. A writing request like `sd 0x1, SEND(base)` will be posted to UINTC.
    3. UINTC writes the corresponding bit in the **Pending Requests** field.
    4. External interrupt will be delivered to the target hart if **Active** field is set to 0x1.
-4. With User external interrupt delegated to User and `uie.UEIE & uip.UEIP & ustatus.UIE == 1`, the receiver will jump to `utvec` to handle the interrupt immediately if it is running on the target hart. Just like trap and interrupt handled in S mode, a `uret` will help get back to normal execution with saved `pc` in `uepc`.
+4. With User software interrupt delegated to User and `uie.USIE & uip.USIP & ustatus.UIE == 1`, the receiver will jump to `utvec` to handle the interrupt immediately if it is running on the target hart. Just like trap and interrupt handled in S mode, a `uret` will help get back to normal execution with saved `pc` in `uepc`.
 
-If the receiver is **not** running, **Active** field will be cleared in higher privilege mode and an external interrupt will not be delivered by UINTC. Before a `sret` or `mret`, we can set `uip.UEIP` manually. When the privilege mode is set back to U, an interrupt will be recognized just like step 4 above.
+If the receiver is **not** running, **Active** field will be cleared in higher privilege mode and an external interrupt will not be delivered by UINTC. Before a `sret` or `mret`, we can set `uip.USIP` manually. When the privilege mode is set back to U, an interrupt will be recognized just like step 4 above.
 
 In higher privilege mode, we can do all the things described above just through `ld` and `sd` with previously mapped device address.
