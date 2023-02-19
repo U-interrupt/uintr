@@ -201,6 +201,79 @@ void helper_uipi_write(CPURISCVState *env, target_ulong data) {
 
 第四个参数传入 `UIPI WRITE` 写入的 `data`。
 
+考虑到 UIPI 指令包含读内存和写回寄存器的功能，且指令需要绕过地址翻译直接用物理地址对内存和外设进行访问，实现 `helper_uipi` 函数：
+
+```c
+target_ulong helper_uipi(CPURISCVState *env, int op, target_ulong src) {
+    if (op == UIPI_SEND) {
+        // Sender
+        if (uipi_enabled(env, env->suist)) {
+            target_ulong uist_end = SUIST_BASE(env->suist) + SUIST_SIZE(env->suist);
+            target_ulong uiste_addr = SUIST_BASE(env->suist) + (src << 6);
+            if (uiste_addr < uist_end) {
+                uint64_t uiste;
+                cpu_physical_memory_read(uiste_addr, &uiste, 16);
+                uint64_t uirs_index = (uiste >> 48) & 0xffff;
+                uint64_t sender_vec = (uiste >> 16) & 0xffff;
+                if (uiste & 0x1) {
+                    uint64_t uintc_addr = UINTC_REG_SEND(env->suicfg, uirs_index);
+                    cpu_physical_memory_write(uintc_addr, &sender_vec, 8);
+                }
+            }
+        }
+    } else if (uipi_enabled(env, env->suirs)) {
+        // Receiver
+        if (env->xl == MXL_RV64) {
+            uint64_t data, addr;
+            switch (op) {
+                case UIPI_READ:
+                    addr = UINTC_REG_HIGH(env->suicfg, SUIRS_INDEX(env->suirs));
+                    cpu_physical_memory_read(addr, &data, 8);
+                    return data;
+                case UIPI_WRITE:
+                    addr = UINTC_REG_HIGH(env->suicfg, SUIRS_INDEX(env->suirs));
+                    cpu_physical_memory_write(addr, &src, 8);
+                    break;
+                case UIPI_ACTIVATE:
+                    data = 0x1;
+                    addr = UINTC_REG_ACTIVE(env->suicfg, SUIRS_INDEX(env->suirs));
+                    cpu_physical_memory_write(addr, &data, 8);
+                    break;
+                case UIPI_DEACTIVATE:
+                    data = 0x0;
+                    addr = UINTC_REG_ACTIVE(env->suicfg, SUIRS_INDEX(env->suirs));
+                    cpu_physical_memory_write(addr, &data, 8);
+                    break;
+            }
+        } else if (env->xl == MXL_RV32) {
+            // TODO
+        }
+    }
+    return 0;
+}
+
+static bool trans_uipi(DisasContext *ctx, arg_uipi *a)
+{
+
+    if (has_ext(ctx, RVN)) {
+        TCGv data = temp_new(ctx);
+        TCGv src = get_gpr(ctx, a->rs1, EXT_NONE);
+        // 注意 opcode 要从 imm 中获得
+        TCGv_i32 op = tcg_constant_i32(a->imm);
+        gen_helper_uipi(data, cpu_env, op, src);
+        if (a->imm == UIPI_READ) {
+            // 这里还需要将读到的结果写回到寄存器
+            TCGv dest = dest_gpr(ctx, a->rd);
+            tcg_gen_mov_tl(dest, data);
+        }
+        return true;
+    }
+    return false;
+}
+```
+
+目前只实现并测试了 RV64 下的功能。
+
 
 ### CPU 状态（Target Emulation）
 
@@ -829,3 +902,76 @@ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64
 
 **2023.1.28**：目前可以在 S 态通过 UINTC 发送用户态中断并看到 USIP 被设置为 1 。
 
+**2023.2.19**：目前 UIPI 指令也可以正常工作，至此针对 QEMU 的改动基本完成。
+
+## 功能测试
+
+在多核 os 中给出了大致的功能测试，测试运行在 S 态，不包含对 U 态执行流切换的测试：
+
+```rust
+// Test UIPI
+unsafe {
+    suicfg::write(UINTC_BASE);
+    assert_eq!(suicfg::read(), UINTC_BASE);
+
+    
+    // Enable receiver status.
+    let uirs_index = 2;
+    // Receiver on hart 3
+    *((UINTC_BASE + uirs_index * 0x20 + 8) as *mut u64) = ((3 << 16) as u64) | 3;
+    suirs::write((1 << 63) | uirs_index);
+    assert_eq!(suirs::read().bits(), (1 << 63) | uirs_index);
+    // Write to high bits
+    uipi_write(0x00010003);
+    assert!(uipi_read() == 0x00010003);
+    
+    // Enable sender status.
+    let frame = AllocatedFrame::new(true).unwrap();
+    suist::write((1 << 63) | (1 << 44) | frame.number());
+    assert_eq!(suist::read().bits(), (1 << 63) | (1 << 44) | frame.number());
+    // valid entry, uirs index = 2, sender vector = 3
+    *(frame.start_address().value() as *mut u64) = (2 << 48) | (3 << 16) | 1;
+    // Send uipi with first uist entry
+    info!("Send UIPI!");
+    uipi_send(0);
+
+    loop {
+        if uintr::sip::read().usoft() {
+            info!("Receive UINT!");
+            uintr::sip::clear_usoft();
+            break;
+        }
+    }
+}
+```
+
+主核（一般是 0 号核）进行一系列的配置，例如 CSR 寄存器，Sender Table 等，对 3 号核发送用户态中断 `uipi_send()`。各个核判断收到用户态中断的依据是 USIP 位被设置为 1 。
+
+```rust
+// Test UIPI
+unsafe {
+    suicfg::write(UINTC_BASE);
+    loop {
+        if uintr::sip::read().usoft() {
+            info!("Receive UINT!");
+            if (hartid == 3) {
+                let uirs_index = 2;
+                suirs::write((1 << 63) | uirs_index);
+                assert_eq!(uipi_read(), 0x0001000b);
+                uintr::sip::clear_usoft();
+
+                info!("Send UIPI!");
+                for i in 0..3 {
+                    *((UINTC_BASE + (i + 3) * 0x20 + 8) as *mut u64) = ((i << 16) as u64) | 3;
+                    *((UINTC_BASE + (i + 3) * 0x20) as *mut u64) = 1;
+                }
+            }
+            break;
+        }
+    }
+}
+```
+
+3 号核接收到中断后再对其他核发送用户态中断，注意这里采用的是写外设方式，其他核收到中断后继续运行。
+
+![func-test-1](imgs/func-test-1.png)

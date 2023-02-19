@@ -117,3 +117,7 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 2. 用户态中断作为一种通知唤醒机制，每次中断的发送和接收只包含 1 比特中断优先级信息。额外传递的信息由软件自行协商，例如共享内存（SQ 和 CQ）的方式。
 3. 发送方获得反馈也可以通过接收方发送用户态中断的方式，因此 `TEST` 操作可以省略，这一部分交给软件自行协商处理。
 4. 引入对 RV32 的支持，UINTC 添加一个 Mode 字段来区分。
+
+## 2.19
+
+完成 QEMU 对 RISC-V User-interrupt 的支持，在 tCore 中添加了简单的功能测试。
