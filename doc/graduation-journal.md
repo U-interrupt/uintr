@@ -121,3 +121,8 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 ## 2.19
 
 完成 QEMU 对 RISC-V User-interrupt 的支持，在 tCore 中添加了简单的功能测试。
+
+## 3.9
+
+- 重构 tCore ，目前还在完善 syscall ，准备接下来加入 RISC-V 用户态中断的 syscall 支持
+- 最近一直在阅读 Understanding the Linux Kernel ，对比 Linux 2.6.11 版本（代码干净，相比最新版本更容易理解），对于现在 tCore 内完善 syscall 支持很有帮助
