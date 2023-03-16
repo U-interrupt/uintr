@@ -126,3 +126,9 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 
 - 重构 tCore ，目前还在完善 syscall ，准备接下来加入 RISC-V 用户态中断的 syscall 支持
 - 最近一直在阅读 Understanding the Linux Kernel ，对比 Linux 2.6.11 版本（代码干净，相比最新版本更容易理解），对于现在 tCore 内完善 syscall 支持很有帮助
+
+## 3.16
+
+本周在继续完善 tCore，修复一系列 Bug，目前支持系统调用见 [syscall/mod.rs](https://github.com/tkf2019/tCore/blob/main/kernel/src/syscall/mod.rs#L17)。
+
+确保了 os 能正常工作，方便接下来加入新特性后的调试。
