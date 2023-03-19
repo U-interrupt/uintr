@@ -42,9 +42,7 @@ pub fn uist_init() {
     if let Some(uist) = &curr.uintr_inner().uist {
         log::trace!("uist_init {:x?}", uist.frames);
 
-        uintr::suist::write(
-            (1 << 63) | (1 << 44) | uist.frames.first().unwrap().start_address().value(),
-        );
+        uintr::suist::write((1 << 63) | (1 << 44) | uist.frames.first().unwrap().number());
     }
 }
 ```
@@ -57,7 +55,7 @@ pub fn uist_init() {
 - suirs 写入待返回用户对应的 index；
 - sideleg 将用户软件中断委托给用户态处理；
 
-虽然在这里将 sip 里对应位设置为 1 ，但由于 qemu 的中断是写 mip 这一时刻才判断是否触发的，因此其他触发条件并不能被即使响应，这里特权态为 S 态；我们期望从 sret 执行完的下一条指令立即陷入用户态中断处理函数，sret 会将特权态设为 U 态，满足触发条件，需要对 qemu 进行修改，在 sret 的 helper 中加入如下代码，相当于在 sret 的处理过程中模拟了中断的触发：
+虽然在这里将 sip 里对应位设置为 1 ，但由于 qemu 的中断是写 mip 这一时刻才判断是否触发的，因此其他触发条件并不能被即时响应；当特权态为 S 态时，我们期望从 sret 执行完的下一条指令立即陷入用户态中断处理函数，sret 会将特权态设为 U 态，满足触发条件，需要对 qemu 进行修改，在 sret 的 helper 中加入如下代码，相当于在 sret 的处理过程中模拟了中断的触发：
 
 ```c
 if (riscv_has_ext(env, RVN)
