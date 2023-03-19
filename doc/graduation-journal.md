@@ -132,3 +132,12 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 本周在继续完善 tCore，修复一系列 Bug，目前支持系统调用见 [syscall/mod.rs](https://github.com/tkf2019/tCore/blob/main/kernel/src/syscall/mod.rs#L17)。
 
 确保了 os 能正常工作，方便接下来加入新特性后的调试。
+
+## 3.19
+
+在用户态进行测试，测例与 x86 linux 中给出的 uipi_sample 基本一致：
+
+- 测例地址：[uipi_sample.c](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uipi_sample.c)
+- lib 库封装：[uintr.h](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uintr.h)，[uintr.S](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uintr.S)
+- 内核实现：[kernel/arch/riscv64/uintr.rs](https://github.com/tkf2019/tCore/blob/main/kernel/src/arch/riscv64/uintr.rs)
+- 开发日志：[kernel-journal](./kernel-journal.md)

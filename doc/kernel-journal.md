@@ -261,7 +261,6 @@ uintrvec:
     
     # save the user registers in TRAPFRAME
     sd ra, 0(sp)
-    sd sp, 8(sp)
     sd gp, 16(sp)
     sd tp, 24(sp)
     sd t0, 32(sp)
@@ -302,7 +301,6 @@ uintrvec:
 uintrret:
     # restore the user registers in TRAPFRAME
     ld ra, 0(sp)
-    ld sp, 8(sp)
     ld gp, 16(sp)
     ld tp, 24(sp)
     ld t0, 32(sp)
@@ -349,6 +347,7 @@ extern void __handler_entry(struct __uintr_frame* frame, void* handler) {
   irqs = __handler(frame, irqs);
 
   uipi_write(irqs);
+  csr_clear(CSR_UIP, MIE_USIE);
 }
 
 static uint64_t __register_receiver(void* handler) {
@@ -360,10 +359,16 @@ static uint64_t __register_receiver(void* handler) {
   csr_set(CSR_USTATUS, USTATUS_UIE);
   csr_set(CSR_UIE, MIE_USIE);
 
+  int ret;
+  ret = __syscall0(__NR_uintr_register_receiver);
+
   // enable UINTC
   uipi_activate();
 
-  return __syscall0(__NR_uintr_register_receiver);
+  return ret;
 }
 ```
 
+最后运行结果如下：
+
+![uintr-1](imgs/uintr-1.png)
