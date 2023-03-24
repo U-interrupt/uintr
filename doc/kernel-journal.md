@@ -5,7 +5,7 @@
 在 trap return 时对控制寄存器进行写入，并根据 UINTC 中的 pending 位来判断是否在返回用户态时立刻触发用户态中断处理：
 
 ```rust
-pub unsafe fn uirs_sync() {
+pub unsafe fn uirs_restore() {
     let uintr_inner = cpu().curr.as_ref().unwrap().uintr_inner();
     if let Some(uirs) = &uintr_inner.uirs {
         let index = uirs.0;
@@ -14,9 +14,10 @@ pub unsafe fn uirs_sync() {
         uirs.mode |= 0x2; // 64 bits
         uirs.sync(index);
 
-        log::trace!("uirs_sync {:x} {:x?}", index, uirs);
+        log::trace!("uirs_restore {:x} {:x?}", index, uirs);
 
         // user configurations
+        uepc::write(uintr_inner.uepc);
         utvec::write(uintr_inner.utvec, utvec::TrapMode::Direct);
         uscratch::write(uintr_inner.uscratch);
         uie::set_usoft();
@@ -54,6 +55,7 @@ pub fn uist_init() {
 - utvec 和 uscratch 由用户设置，保存在 TCB 中，每次返回用户态前重新设置；
 - suirs 写入待返回用户对应的 index；
 - sideleg 将用户软件中断委托给用户态处理；
+- 接收方可能在处理函数中收到时钟中断，然后被另一个核继续调度，另一个核为了正确执行 uret，必须在陷入时保存 upec 并在返回用户态时恢复 upec 。
 
 虽然在这里将 sip 里对应位设置为 1 ，但由于 qemu 的中断是写 mip 这一时刻才判断是否触发的，因此其他触发条件并不能被即时响应；当特权态为 S 态时，我们期望从 sret 执行完的下一条指令立即陷入用户态中断处理函数，sret 会将特权态设为 U 态，满足触发条件，需要对 qemu 进行修改，在 sret 的 helper 中加入如下代码，相当于在 sret 的处理过程中模拟了中断的触发：
 
@@ -327,6 +329,7 @@ uintrret:
     ld t3, 216(sp)
     ld t4, 224(sp)
     ld t5, 232(sp)
+    ld t6, 240(sp)
 
     # restore stack pointer
     addi sp, sp, 248
