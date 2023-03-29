@@ -141,3 +141,11 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
 - lib 库封装：[uintr.h](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uintr.h)，[uintr.S](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uintr.S)
 - 内核实现：[kernel/arch/riscv64/uintr.rs](https://github.com/tkf2019/tCore/blob/main/kernel/src/arch/riscv64/uintr.rs)
 - 开发日志：[kernel-journal](./kernel-journal.md)
+
+
+## 3.30
+
+- [修复上周遇到的 bug](https://github.com/tkf2019/tCore/commit/44861906cceb0a0ce0027792d63a8bd3f2ffb670)，原因：
+  - 用户中断处理函数修改的变量需要加 `volatile` 防止被优化；
+  - 需要保存 upec 因为 task 可能在不同核上运行；
+- [Linux 内核开发日志](./linux-journal.md)
