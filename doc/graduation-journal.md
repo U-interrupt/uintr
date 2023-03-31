@@ -149,3 +149,11 @@ fn open(&self, path: &str, flags: OpenFlags) -> Result<Arc<dyn File>, ErrNO> {
   - 用户中断处理函数修改的变量需要加 `volatile` 防止被优化；
   - 需要保存 upec 因为 task 可能在不同核上运行；
 - [Linux 内核开发日志](./linux-journal.md)
+
+## 3.31
+
+- 在 Linux 上成功运行 uipi_sample，Linux 实现初步完成
+
+![uintr-3](imgs/uintr-3.png)
+
+- 小结：QEMU -> tCore (libc) -> Linux 开发路线优化掉了很多未知的问题

@@ -42,7 +42,7 @@ mkfs.ext4 rootfs.img
 
 ```sh
 mkdir rootfs
-sudo mount -o loop rootfs.img  rootfs
+sudo mount -o loop rootfs.img rootfs
 cd rootfs
 sudo cp -r ../busybox-1.33.1/_install/* .
 sudo mkdir proc sys dev etc etc/init.d
@@ -583,3 +583,121 @@ static __always_inline void arch_exit_to_user_mode(void) {}
 ```
 
 发现 riscv 并没有实现这些函数，需要我们添加头文件 `arch/riscv/include/asm/entry-common.h`。
+
+阅读 `arch/riscv/kernel/entry.S` 发现上述办法行不通，因为 RISC-V 的中断异常处理流程是自己定义的，并没有用到这些函数。
+
+需要在 trap 入口（内核开中断前）对寄存器 utvec、uscratch、upec 进行保存，并在返回时恢复 CSR 和 UINTC 的状态，代码执行过程和 [tCore](./kernel-journal.md#tcore-实现) 类似。
+
+尝试在 `generic_handle_arch_irq` 前插入保存函数，`init` 会崩溃，具体原因**尚未查清**。
+
+```asm
+call riscv_uintr_save # FAILED!
+
+bge s4, zero, 1f
+
+la ra, ret_from_exception
+
+/* Handle interrupts */
+move a0, sp /* pt_regs */
+la a1, generic_handle_arch_irq
+jr a1
+```
+
+换一种思路，将这三个寄存器保存在 `struct pt_regs` 中，并在 `arch/riscv/asm/asm-offsets` 中添加相关定义，在 `arch/riscv/kernel/entry.S` 中插入对这些寄存器的保存：
+
+```asm
+csrr s6, CSR_UTVEC
+csrr s7, CSR_USCRATCH
+csrr s8, CSR_UEPC
+
+REG_S s6, PT_UTVEC(sp)
+REG_S s7, PT_USCRATCH(sp)
+REG_S s8, PT_UEPC(sp)
+```
+
+阅读这部分汇编并结合 `struct task_struct` 结构的定义可以知道，`tp` 寄存器指向的正是 `struct thread_info` ，从里面恢复了 kernel 的 `sp` 寄存器。
+
+```asm
+ENTRY(handle_exception)
+/*
+    * If coming from userspace, preserve the user thread pointer and load
+    * the kernel thread pointer.  If we came from the kernel, the scratch
+    * register will contain 0, and we should continue on the current TP.
+    */
+csrrw tp, CSR_SCRATCH, tp
+bnez tp, _save_context
+
+_save_context:
+	REG_S sp, TASK_TI_USER_SP(tp)
+	REG_L sp, TASK_TI_KERNEL_SP(tp)
+	addi sp, sp, -(PT_SIZE_ON_STACK)
+```
+
+`sp` 寄存器在汇编的执行过程中（陷入到返回）都没有发生变化，且指向 `struct pt_regs`，因此我们可以通过 `sp` 恢复 utvec、uscratch、uepc 寄存器：
+
+```asm
+resume_userspace:
+	move a0, sp
+	call riscv_uintr_restore
+```
+
+## 系统调用实现
+
+系统调用参考 x86 linux 实现，核心思路是通过文件描述符配置发送方和接收方。
+
+资源的释放主要包括两个函数：`uintrfd_release` 和 `uintr_free`。
+
+`uintrfd_release` 是对发送方中断向量的释放。
+
+`uintr_free` 则是在 `arch/riscv/kernel/process.c` 中实现 `exit_thread` 函数，注意需要在 `Kconfig` 中添加 `select HAVE_EXIT_THREAD if RISCV_UINTR` 来开启对 `exit_thread` 的支持。`uintr_free` 判断是否是发送方或接收方（可以同时是发送方和接收方），并分别进行处理。
+
+```c
+if (is_uintr_receiver(t)) {
+    ui_recv = t->thread.ui_recv;
+    uirs_index = ui_recv->uirs_index;
+    uintc_dealloc(ui_recv->uirs_index);
+    put_task_struct(ui_recv->task);
+    kfree(ui_recv);
+    t->thread.ui_recv = NULL;
+    csr_write(CSR_SUIRS, 0UL);
+    pr_info("freed receiver=%d entry=%d\n", t->pid, uirs_index);
+}
+
+if (is_uintr_sender(t)) {
+    ui_send = t->thread.ui_send;
+    put_uist_ref(ui_send->uist_ctx);
+    put_task_struct(ui_send->task);
+    kfree(ui_send);
+    t->thread.ui_send = NULL;
+    csr_write(CSR_SUIST, 0UL);
+    pr_info("freed sender=%d\n", t->pid);
+}
+```
+
+在实现的过程中还注意到 clone 会对 `struct thread_struct` 进行值拷贝，但是 `struct uintr_sender` 和 `struct uintr_receiver` 都保存在该结构中，也就是说如果发送方是从接收方 clone 出来的，默认也会指向接收方的，为了避免 double free 问题，暂时在 uintr_sender 和 uintr_receiver 都保存了指向 task 的指针来唯一区分接收方和发送方。
+
+```c
+static inline bool is_uintr_receiver(struct task_struct *t)
+{
+	return !!t->thread.ui_recv && t->thread.ui_recv->task == t;
+}
+
+static inline bool is_uintr_sender(struct task_struct *t)
+{
+	return !!t->thread.ui_send && t->thread.ui_send->task == t;
+}
+
+/* CPU-specific state of a task */
+struct thread_struct {
+	/* Callee-saved registers */
+	unsigned long ra;
+	unsigned long sp;	/* Kernel mode stack */
+	unsigned long s[12];	/* s[0]: frame pointer */
+	struct __riscv_d_ext_state fstate;
+	unsigned long bad_cause;
+#ifdef CONFIG_RISCV_UINTR
+	struct uintr_sender *ui_send; /* user interrupt sender */
+	struct uintr_receiver *ui_recv; /* user interrupt receiver */
+#endif
+};
+```
