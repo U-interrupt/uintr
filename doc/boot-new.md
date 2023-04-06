@@ -65,3 +65,11 @@ Docker 清理：
 - `docker rm -f $(docker ps -aq)`：删除所有容器
 - `docker image ls -f dangling=true`：列出所有镜像（包含中间层、被容器使用的镜像）
 - `docker image rm $(docker image ls -f dangling=true)`：删除所有镜像
+
+## 4.5
+
+发现 litex 项目，可以仿真 vecriscv 并运行 Linux ，按照仓库内的提示配置环境后执行 `./sim.py` 会卡在 Linux 启动。
+
+该项目号称支持 zcu102 ，并没有相关的演示，理想的方案是 Litex + Rocket Chip 仿真 Linux 后直接在 zcu102 上完成测试。
+
+Rocket Chip 目前可以在搭建好的 docker 容器进行仿真，对 riscv-tests 进行分析并编写指令测例（UIPI 指令和读写外设）。
