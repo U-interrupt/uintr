@@ -131,7 +131,8 @@ If `uipi SEND, <index>` is executed wit   h an index exceeding **Size** field in
 
 For Receiver:
 
-An instruction `uipi READ, <reg>`(`uipi WRITE, <reg>`) is used to read pending bits from (write to) UINTC with the index in **suirs**. **rs1** filed is wired to zero for `READ`, while **rd** field is wired to zero for `WRITE`.
+An instruction `uipi READ, <reg>` is used to read and clear pending bits from UINTC with the index in **suirs**.An instruction `uipi WRITE, <reg>` is used to do OR operation with old pending bits with the index in **suirs**.
+**rs1** filed is wired to zero for `READ`, while **rd** field is wired to zero for `WRITE`.
 
 An instruction `uipi ACTIVATE` or `uipi DEACTIVATE` is used to set or unset the **Active** field in the entry with the index in **suirs**.
 
