@@ -1,5 +1,156 @@
 # Graduation Journal
 
+## 4.18-4.19
+
+在 rocket chip 加入了用户态中断需要的 CSR 寄存器并通过测例；整体改动和 QEMU 类似；
+
+在改动的过程中，遇到很多和 HS，VS 有关的代码，暂时没有考虑逻辑相互影响可能产生的问题；
+
+### csrrw
+
+参考已有的读写 CSR 代码：
+
+```scala
+if (usingUser && usingUintr) {
+  val read_uie = reg_mie & read_sideleg
+  val read_uip = read_mip & read_sideleg
+  val read_ustatus = Wire(init = 0.U.asTypeOf(new MStatus))
+  read_ustatus.upie := io.status.upie
+  read_ustatus.uie := io.status.uie
+  val uintr_csrs = LinkedHashMap[Int, Bits](
+    CSRs.ustatus -> (read_ustatus.asUInt())(xLen-1,0),
+    CSRs.uie -> read_uie.asUInt,
+    CSRs.uip -> read_uip.asUInt,
+    CSRs.ucause -> reg_ucause,
+    CSRs.uepc -> reg_uepc,
+    CSRs.utval -> reg_utval,
+    CSRs.utvec -> reg_utvec,
+    CSRs.uscratch -> reg_uscratch)
+  read_mapping ++= uintr_csrs
+
+  read_mapping += CSRs.sideleg -> read_sideleg
+
+  read_mapping += CSRs.suirs -> reg_suirs.asUInt
+  read_mapping += CSRs.suist -> reg_suist.asUInt
+  read_mapping += CSRs.suicfg -> reg_suicfg
+}
+
+if (usingUser && usingUintr) {
+  when (decoded_addr(CSRs.ustatus)) {
+    val new_ustatus = new MStatus().fromBits(wdata)
+    reg_mstatus.uie := new_ustatus.uie
+    reg_mstatus.upie := new_ustatus.upie
+  }
+  when (decoded_addr(CSRs.uip)) {
+    val new_uip = new MIP().fromBits((read_mip & ~read_sideleg) | (wdata & read_sideleg))
+    reg_mip.usip := new_uip.usip
+  }
+  when (decoded_addr(CSRs.uie)) { reg_mie := (reg_mie & ~read_sideleg) | (wdata & read_sideleg) }
+  when (decoded_addr(CSRs.uscratch)) { reg_uscratch := wdata }
+  when (decoded_addr(CSRs.uepc)) { reg_uepc := wdata }
+  when (decoded_addr(CSRs.utvec)) { reg_utvec := wdata }
+  when (decoded_addr(CSRs.utval)) { reg_utval := wdata }
+  when (decoded_addr(CSRs.ucause)) { reg_ucause := wdata & scause_mask }
+
+  when (decoded_addr(CSRs.sideleg)) { reg_sideleg := wdata }
+
+  when (decoded_addr(CSRs.suirs)) {
+    val new_suirs = new SUIRS().fromBits(wdata)
+    reg_suirs := new_suirs
+  }
+  when (decoded_addr(CSRs.suist)) {
+    val new_suist = new SUIST().fromBits(wdata)
+    reg_suist := new_suist
+  }
+  when (decoded_addr(CSRs.suicfg)) { reg_suicfg := wdata }
+}
+```
+
+### trap
+
+注意到如下代码：
+
+```scala
+val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
+val read_stvec = formTVec(reg_stvec).sextTo(xLen)
+
+def formTVec(x: UInt) = x andNot Mux(x(0), ((((BigInt(1) << mtvecInterruptAlign) - 1) << mtvecBaseAlign) | 2).U, 2)
+```
+
+为什么 stvec 要采用符号扩展？
+
+添加对委托中断的处理和跳转：
+
+```scala
+val delegateU = Bool(usingUser && usingUintr) && reg_mstatus.prv === PRV.U && delegate && read_sideleg(cause_lsbs)
+// ...
+val base = Mux(delegate, Mux(delegateVS, read_vstvec, Mux(delegateU, read_utvec, read_stvec)), read_mtvec)
+```
+
+修改 S 态中断的逻辑，需要屏蔽已经委托给 U 态的中断；
+
+```scala
+val s_interrupts = Mux(nmie && (reg_mstatus.v || reg_mstatus.prv < PRV.S || (reg_mstatus.prv === PRV.S && reg_mstatus.sie)), pending_interrupts & read_mideleg & ~read_hideleg & ~read_sideleg, UInt(0))
+val u_interrupts = Mux(nmie && reg_mstatus.prv === PRV.U && reg_mstatus.uie, pending_interrupts & read_sideleg, UInt(0))
+val (anyInterrupt, whichInterrupt) = chooseInterrupt(Seq(u_interrupts, vs_interrupts, s_interrupts, m_interrupts, nmi_interrupts, d_interrupts))
+```
+
+### uret
+
+位于 `rocket/CSR.scala` 中的修改：
+
+`decode_table` 用来区分特权指令的功能，使用 List 来设置 `insn_call` 、`insn_break` 、`insn_ret` 等，注意到 `insn_ret` 包括以下几种指令：
+
+```scala
+def MRET = BitPat("b00110000001000000000000001110011")
+def SRET = BitPat("b00010000001000000000000001110011")
+def URET = BitPat("b00000000001000000000000001110011")
+def DRET = BitPat("b01111011001000000000000001110011")
+def MNRET = BitPat("b01110000001000000000000001110011")
+```
+
+根据 `io.rw.addr` 来判断当前 `insn_ret` 指令具体是哪个，对应 uret 第八位和第九位都是 0 ，添加如下分支实现 uret 的硬件逻辑。
+
+```scala
+when (Bool(usingUser && usingUIntr) && !io.rw.addr(9) && !io.rw.addr(8)) {
+  reg_mstatus.uie := reg_mstatus.upie
+  reg_mstatus.upie := true
+  ret_prv := PRV.U
+  io.evec := readEPC(reg_uepc)
+}
+```
+
+在 `rocket/RocketCore.scala` 中添加指令解码：
+
+```scala
+val decode_table = {
+  // ...
+  (usingUser.option(new UDecode)) ++:
+  // ...
+} flatMap(_.table)
+```
+
+定义位于 `rocket/IDecode.scala`：
+
+```scala
+// 各项含义
+def default: List[BitPat] =
+              //           jal                                                             renf1               fence.i
+              //   val     | jalr                                                          | renf2             |
+              //   | fp_val| | renx2                                                       | | renf3           |
+              //   | | rocc| | | renx1       s_alu1                          mem_val       | | | wfd           |
+              //   | | | br| | | |   s_alu2  |       imm    dw     alu       | mem_cmd     | | | | mul         |
+              //   | | | | | | | |   |       |       |      |      |         | |           | | | | | div       | fence
+              //   | | | | | | | |   |       |       |      |      |         | |           | | | | | | wxd     | | amo
+              //   | | | | | | | | scie      |       |      |      |         | |           | | | | | | |       | | | dp
+              List(N,X,X,X,X,X,X,X,X,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        X,X,X,X,X,X,X,CSR.X,X,X,X,X)
+class UDecode(implicit val p: Parameters) extends DecodeConstants
+{
+  val table: Array[(BitPat, List[BitPat])] = Array(
+    URET -> List(Y, N, N, N, N, N, N, X, N, A2_X, A1_X, IMM_X, DW_X, FN_X, N, M_X, N, N, N, N, N, N, N, CSR.I, N, N, N, N))
+}
+```
+
 ## 4.16-4.17
 
 用了大概一天半的时间，修复了运行 uintrfd 测例的存在的问题：
