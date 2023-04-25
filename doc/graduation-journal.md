@@ -1,5 +1,176 @@
 # Graduation Journal
 
+## 4.24-4.25
+
+参考 CLINT 和 PLIC 实现 UINTC 外设：
+
+首先定义 device 并指定名称和 compatible，和 QEMU 中生成设备树的逻辑类似，在这里需要指定 UINTC 连接到 intc ，且需要指定为 interrupt-controller 让 linux 完成初始化（interrupt-controller 实际上是接收中断的控制器）。
+
+```scala
+val device = new SimpleDevice("uintc", Seq("riscv,uintc0")) {
+  override val alwaysExtended: Boolean = true
+
+  override def describe(resources: ResourceBindings): Description = {
+    val Description(name, mapping) = super.describe(resources)
+    val extra = Map("interrupt-controller" -> Nil, "#interrupt-cells" -> Seq(ResourceInt(1)))
+    Description(name, mapping ++ extra)
+  }
+}
+```
+
+定义 node 来配置 UINTC 寄存器的读写端口：
+
+```scala
+val node: TLRegisterNode = TLRegisterNode(
+  address = Seq(params.address),
+  device = device,
+  beatBytes = beatBytes,
+  concurrency = 1) // limiting concurrency handles RAW hazards on claim registers
+```
+
+定义 intnode 来实现 `uintc -> intc -> usip` 的连接，在写入操作里将 ipi 寄存器对应位置位，这里应该是一个很大的比较逻辑：
+
+```scala
+val intnode: IntNexusNode = IntNexusNode(
+  sourceFn = { _ => IntSourcePortParameters(Seq(IntSourceParameters(1, Seq(Resource(device, "int"))))) },
+  sinkFn = { _ => IntSinkPortParameters(Seq(IntSinkParameters())) },
+  outputRequiresInput = false)
+
+// pending 未被清空时，拉高 ipi，这里是一个比较大的组合逻辑，相当于长度为 512 的按位或
+// 时序紧张时或许可以考虑改成二分的按位或？ Chisel 应该有相关函数
+val ipi = Seq.fill(nHarts) { RegInit(0.U) }
+ipi.zipWithIndex.foreach { case (hart, i) =>
+  hart := uirs.map(x => x.pending =/= 0.U && x.active && hartId(x.hartid) === i.asUInt).reduce(_ || _)
+}
+val (intnode_out, _) = intnode.out.unzip
+intnode_out.zipWithIndex.foreach { case (int, i) =>
+  int(0) := ShiftRegister(ipi(i), params.intStages) // usip
+}
+
+// 基址 -> Seq[RegField(nBits, RegReadFn, RegWriteFn)]
+sendOffset(i) -> Seq(RegField(64, (),
+  RegWriteFn { (valid, data) =>
+    x.pending := x.pending | (valid << data(5, 0)).asUInt
+    Bool(true)
+  }))
+```
+
+最后定义一系列的 RegField 实现所有 uirs 的读写操作，调用 `node.regmap(opRegFields)` 进行注册。
+
+关键的是需要将中断信号连接到对应核的 usip ，参考 mtip，msip 等寄存器的设置，连接  core.interrupts 和 intSinkNode ：
+
+```scala
+// freechips.rocketchip.subsystem.CanAttachTile
+// From UINTC: "usip" (only if user mode is enabled)
+if (domain.tile.tileParams.core.useUser) {
+  domain.crossIntIn(crossingParams.crossingType) :=
+    context.uintcOpt.map { _.intnode }
+      .getOrElse { NullIntSource() }
+}
+
+// freechips.rocketchip.tile.SinksExternalInterrupts
+// debug, msip, mtip, meip, seip, usip, lip offsets in CSRs
+def csrIntMap: List[Int] = {
+  // ...
+  val usip = if (usingUser) Seq(0) else Nil
+  List(65535, 3, 7, 11) ++ seip ++ usip ++ List.tabulate(nlips)(_ + 16)
+}
+
+// go from flat diplomatic Interrupts to bundled TileInterrupts
+def decodeCoreInterrupts(core: TileInterrupts): Unit = {
+  // ...
+  val usip = if (core.usip.isDefined) Seq(core.usip.get) else Nil
+  // ...
+  val (interrupts, _) = intSinkNode.in(0)
+  (async_ips ++ periph_ips ++ seip ++ usip ++ core_ips).zip(interrupts).foreach { case(c, i) => c := i }
+}
+```
+
+最后在 CSR 内读到连接后的 io.interrupts 并触发 CPU 的中断：
+
+```scala
+// usip is the OR of reg_mip.usip and the actual line from the UINTC
+io.interrupts.usip.foreach { mip.usip := reg_mip.usip || _ }
+val pending_interrupts = high_interrupts | (read_mip & reg_mie)
+val u_interrupts = Mux(nmie && reg_mstatus.prv === PRV.U && reg_mstatus.uie, pending_interrupts & read_sideleg, UInt(0))
+```
+
+IDEA 报错找不到 symbol ，解决办法是 `File->Invalidate Caches` 再重启。
+
+仿真环境下从 send 写指令发出到触发中断，大概需要 **10~ cycles** 。
+
+修改代码后最好能 make clean 并删除 rocketchip.jar，不然可能出现跳过新改动的情况。
+
+## 4.21
+
+添加 uipi 测例，首先对 suicfg，suirs，suist 寄存器进行读写，对 UINTC 外设进行读写来完成初始化配置；
+
+主线程同时作为发送方和接收方，发送用户态中断后，进入处理函数后会将全局的 result 写为 0xdead ，同时在主线程轮询 result 直到 result 变为 0xdead。
+
+```asm
+  # suicfg
+  li t0, UINTC_BASE
+  csrw 0x1b2, t0
+  TEST_CASE(0, t1, UINTC_BASE, csrr t1, 0x1b2)
+  
+  # suirs: v=1, idx=0
+  li t0, (1 << 63)
+  csrw 0x1b1, t0
+  TEST_CASE(1, t1, 0, csrr t1, 0x1b1; xor t1, t1, t0)
+  # mode=1, hartid=a0, pendings=0
+  slli t0, a0, 16
+  ori t0, t0, 2
+  li t1, UITNC_LOW(0)
+  sd t0, 0(t1)
+  li t1, UINTC_HIGH(0)
+  sd zero, 0(t1) 
+
+  # suist: v=1, uvec=3, uirs_idx=0
+  la t0, uiste
+  li t1, ((3 << 16) | 1)
+  sd t1, 0(t0)
+  srli t0, t0, 12
+  li t1, ((1 << 63) | (1 << 44))
+  or t0, t0, t1
+  csrw 0x1b0, t0
+  TEST_CASE(2, t1, 0, csrr t1, 0x1b0; xor t1, t1, t0)
+
+  # jump to user land
+  li t0, SSTATUS_SPP
+  csrc sstatus, t0
+  la t0, 1f
+  csrw sepc, t0
+  csrsi sideleg, MIP_USIP
+  sret
+  1:
+
+finish:
+  # setup user interrupt handler
+  la t0, utvec_handler
+  csrw utvec, t0
+
+  # enable user interrupt
+  csrsi ustatus, USTATUS_UIE
+  csrsi uie, MIP_USIP
+
+  # activate
+  .insn i 0b1111011, 0b010, x0, x0, 0x3
+
+  # send interrupt
+  li t0, 0
+  .insn i 0b1111011, 0b010, x0, t0, 0x0
+
+wait:
+  li t0, 0xdead
+  lw t1, result
+  bne t0, t1, wait
+
+  RVTEST_PASS
+
+  # We should only fall through to this if scall failed.
+  TEST_PASSFAIL
+```
+
 ## 4.18-4.19
 
 在 rocket chip 加入了用户态中断需要的 CSR 寄存器并通过测例；整体改动和 QEMU 类似；
