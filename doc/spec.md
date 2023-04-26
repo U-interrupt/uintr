@@ -103,10 +103,10 @@ UINTC receiver status entry when `SXLEN=64`:
 UIPI is an I-type instruction formatted as below:
 
 ```txt
- 31        20 19   15 14   12 11   7 6        0 
-+-------------+-------+-----+------+---------+
-| uipi opcode |  rs1  | 010 |  rd  | 1111011 | UIPI I-type
-+-------------+-------+-----+------+---------+
+31          25 24   20 19   15 14   12 11   7 6        0 
++-------------+-------+-------+-------+------+---------+
+| uipi opcode |  rs2  |  rs1  |  010  |  rd  | 1111011 | UIPI R-type
++-------------+-------+-------+-------+------+---------+
 ```
 
 The **uipi opcode** field, which indicates the opration processed by this instruction:
