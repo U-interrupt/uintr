@@ -1,5 +1,31 @@
 # Graduation Journal
 
+## 4.26
+
+### 学习 seL4
+
+对于 seL4 IPC 的概括：**IPC is the seL4 mechanism for implementing cross-domain function calls.** seL4 中的 IPC 可以理解为函数调用，不能跨核，不支持大块数据传输（**for RPC-like invocation of functions in a different address space.**）多核场景下，应该使用 Notification 机制，主要关注 `seL4_Signal` 等函数。
+
+### UIPI
+
+关于发送方状态的处理，想到以下几种方案：
+
+1. 目前的设计方案是发送方的 UIPI_SEND 指令会向内存发送一次读请求，向外设发送一次写请求，且读请求需要先读到 `CSR.suist`，也就是说需要在 WB 阶段进行处理（否则需要前传），这里的读写请求都是 uncached 。在指令 WB 阶段连接协处理器（或者可以直接在 CSR.scala 里面处理）。读内存的请求可以连接到 DCache 上，所有的 UIPI 指令都需要在 WB 阶段读写 UINTC 外设，因此需要添加新的 Node 。
+
+2. 发送方状态也放在 UINTC 中维护，需要使用 Block RAM ，UINTC 可以维护的连接数量是有限的（受限于 BRAM 宽度），因此要么只允许这个数量的连接（register_sender 系统调用返回 ENOSPC 之类的错误码，发送方只能手动 unregister），要么将 UINTC 中的状态表组织成全相联结构，作为内存中完整的表的一个子集（Cache），用户在发送前，需要将将要使用的 index 进行 preload 操作，也就是告诉内核在 UINTC 中装填对应的 index ，原来的项需要被替换到内存中，这样就不需要指令完成读内存操作了。系统调用扩充为类似于 `sys_register_sender(fd, load_mask)`，其中 `load_mask` 是用户想在接下来使用的槽位，该系统调用仍返回 index，需要用户自己维护已分配的 mask 。如果发送方没有进行 preload，可能会导致发送失败。
+
+3. 发送方的状态在每次调度的时候写入到 UINTC 中，UINTC 只需要维护 hart 数量乘以接收方数量这么多的状态即可。
+
+4. UINTC 访问内存，读取发送方状态
+
+### 接收方数量超出 UINTC 容量的解决办法
+
+UINTC 只维护正在运行的接收方的状态，作为全部接收方状态的子集；
+
+UIPI SEND 发送给不在运行的接收方会触发 Store Fault ，最好能在 MEM 阶段完成外设的访问，所以考虑采用上述方案 4；
+
+内核负责写入到不在运行的接收方的 pending 位。
+
 ## 4.24-4.25
 
 参考 CLINT 和 PLIC 实现 UINTC 外设：

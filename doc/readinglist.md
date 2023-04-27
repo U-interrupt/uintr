@@ -31,3 +31,8 @@ Relevant documents and papers are listed here.
   - [Object Safety](https://doc.rust-lang.org/reference/items/traits.html#object-safety) and [RFC](https://github.com/rust-lang/rfcs/blob/master/text/0255-object-safety.md)
 
 - [OpenSBI Domain Support](https://github.com/riscv-software-src/opensbi/blob/master/docs/domain_support.md)
+
+- `seL4`：
+  - [Understand seL4 IPC](https://microkerneldude.org/2019/03/07/how-to-and-how-not-to-use-sel4-ipc/)
+  - [seL4 Overview](https://sel4.systems/About/seL4-whitepaper.pdf)
+  - 

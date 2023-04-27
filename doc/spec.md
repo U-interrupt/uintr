@@ -127,7 +127,7 @@ An instruction `uipi SEND, <index>` is used for sending a user interrupt. As des
 
 Currently, a user interrupt sender table entry is **128 B** in size. Reserved bits in **suist** might be used for further configurations.
 
-If `uipi SEND, <index>` is executed wit   h an index exceeding **Size** field in **suist**, or the target entry is not valid, this instruction will have no effect; neither interrupt nor memory access will be processed.
+If `uipi SEND, <index>` is executed with an index exceeding **Size** field in **suist**, or the target entry is not valid, this instruction will have no effect; neither interrupt nor memory access will be processed.
 
 For Receiver:
 
