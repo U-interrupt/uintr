@@ -1,5 +1,28 @@
 # Graduation Journal
 
+## 4.30
+
+CS250 中对 RoCC 指令的[介绍](https://inst.eecs.berkeley.edu/~cs250/fa13/handouts/lab3-sumaccel.pdf)，指令中 xd, xs1, xs2 位是寄存器的控制位，如果 xs1 为 0 就代表不从 rs1 中读内容，xd 为 0 就代表不写入到 rd 中，因此 UIPI READ 指令 14-12 位需要改为 0b110 。
+
+查看 HellaCacheArbiter 的波形，注意到 requestor_1 是 RoCC 的请求，`io.mem.s2_nack` 被拉高，根据注释中的说法，说明写请求失败了，继续查找相关逻辑，注意到 `io.cpu.s2_nack` 这个信号为 0 的原因是 `s2_dont_nack_uncached` 为 0，也就是 `s2_valid_uncached_pending` 为 0,也就是 `uncachedInFlight` 为 1：
+
+```scala
+// DCache.scala
+val s2_valid_uncached_pending = s2_valid_miss && s2_uncached && !uncachedInFlight.asUInt.andR
+val s2_dont_nack_uncached = s2_valid_uncached_pending && tl_out_a.ready
+```
+
+DCache 的逻辑非常复杂，s2_nack 和 ready 一直为 0 是有关联的吗？
+
+目前可以确定 MEM read/write 和 UINTC 的 read 都会正常收到 resp，但是 UINTC 的 write 不会收到 resp 。流水线中有对 DCache write 的处理，所以 UIPI 协处理器也需要对写操作进行一些处理。观察到 DCache 在直接通过 sd 写 UINTC 时，也拉高了 s2_nack 这个信号并进行了 replay ，且 resp.valid 一直为 0 ，流水线中的 pc 也发生了回退，说明流水线确实对 s2_nack 进行了处理。
+
+DCache 有三个端口：CPU 的 dmem，RoCC IF 的 cache，以及 PTW 的 mem ，三者会经过仲裁向 DCache 发请求。 RoCC 连一个 IF 的目的是作为多个 RoCC 的缓冲，然而当 MMIO 请求不返回 resp.valid 时， SimpleHellaCacheIFReplayQueue 阻塞，从 RoCC 的视角来看 ready 就永远是 0。
+
+**解决办法**：
+
+1. 在协处理器里手动将记录 DCache 响应后的 cycle，然后根据 s2_nack 决定是否要重新发起请求。
+2. 由于目前只有 RoCC，可以直接移除 SimpleHellaCacheIF ，直接将 DCacheArbiter 和协处理器相连。 
+
 ## 4.26
 
 ### 学习 seL4
