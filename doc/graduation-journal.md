@@ -23,6 +23,12 @@ DCache 有三个端口：CPU 的 dmem，RoCC IF 的 cache，以及 PTW 的 mem �
 1. 在协处理器里手动将记录 DCache 响应后的 cycle，然后根据 s2_nack 决定是否要重新发起请求。
 2. 由于目前只有 RoCC，可以直接移除 SimpleHellaCacheIF ，直接将 DCacheArbiter 和协处理器相连。 
 
+### 目前 RISC-V 用户态中断扩展的功能已全部实现：
+
+- RISC-V N 扩展（U 态 CSR 和中断处理）
+- UINTC 用户态中断控制器
+- UIPI 协处理器（基于 RoCC）
+
 ## 4.26
 
 ### 学习 seL4
