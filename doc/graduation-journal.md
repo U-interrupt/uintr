@@ -1,5 +1,17 @@
 # Graduation Journal
 
+## 4.31
+
+构建在 FPGA 的 Block Design 上连接的 Top Module 。
+
+参考以下几个项目：
+
+- [rc-fpga-zcu](https://github.com/li3tuo4/rc-fpga-zcu)：一个参考 fpga-zynq 项目在 zcu102 上搭建 Rocket Chip 运行 Linux，优点是分离了自己添加的代码和 Rocket Chip 项目本来的代码，缺点是太久没有更新了，而且 Adapter 的功能并不是必需的。
+- [labeled-RISC-V](https://github.com/LvNA-system/labeled-RISC-V)：优点是 SoC 搭建比较完整，缺点是自己的代码和 Rocket Chip 混合在一起，也是太久没有更新了。
+- [rocket-chip-vcu128](https://github.com/jiegec/rocket-chip-vcu128)：优点是跟踪了最新版本的 Rocket Chip，项目构建非常清晰，问题是板子不太一样。
+
+现在 Top Module 对外暴露了 MEM 和 MMIO 的 AXI 端口，以及外部的 reset 信号和中断信号，可以在 PS 端或使用 Jtag （目前还没有连接） 对 Rocket Chip 进行复位，非常方便。
+
 ## 4.30
 
 CS250 中对 RoCC 指令的[介绍](https://inst.eecs.berkeley.edu/~cs250/fa13/handouts/lab3-sumaccel.pdf)，指令中 xd, xs1, xs2 位是寄存器的控制位，如果 xs1 为 0 就代表不从 rs1 中读内容，xd 为 0 就代表不写入到 rd 中，因此 UIPI READ 指令 14-12 位需要改为 0b110 。
