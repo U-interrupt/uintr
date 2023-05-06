@@ -1,8 +1,8 @@
 # User Interrupt
 
-![uintr](./doc/imgs/uintr-2.png)
-
 ## [RISC-V User-Interrupt Specification](./doc/spec.md)
+
+![uintr](./doc/imgs/uintr.png)
 
 ## QEMU
 
@@ -17,5 +17,13 @@
 
 ## Testcases
 
+![uintr-app](./doc/imgs/uintr2.png)
+
 - [libc support](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uintr.h)
 - [uipi_sample.c](https://github.com/tkf2019/tCore-test/blob/main/libc/src/uintr/uipi_sample.c)
+
+## Rocket Chip
+
+![uipi-state-machine](./doc/imgs/uintr3.png)
+
+- [Rocket Chip Support](https://github.com/U-interrupt/uintr-rocket-chip)

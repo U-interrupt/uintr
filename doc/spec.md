@@ -13,11 +13,6 @@ We try to prevent following situations when a user can send IPI without trapped 
 2. Malicious receiver tries to modify the hartid to redirect a user interrupt to other harts.
 3. The receiver is not running on the target hart and an invalid user interrupt is sent to the hart.
 
-
-## User Interrupt Configuration (suicfg)
-
-The **suicfg** is an SXLEN-bit read/write register, which indicates the base address of UINTC. 
-
 ## User Interrupt Sender Table (suist)
 
 The **suist** is an SXLEN-bit read/write register, formatted as below:
@@ -100,7 +95,7 @@ UINTC receiver status entry when `SXLEN=64`:
 
 ## UIPI
 
-UIPI is an I-type instruction formatted as below:
+UIPI is an R-type instruction formatted as below:
 
 ```txt
 31          25 24   20 19   15 14   12 11   7 6        0 
@@ -149,9 +144,9 @@ UINTC Register Map:
 | Offset |  Width | Attr | Name | Description |
 |  ----  | ----  |  ----  | ----  |  ----  |
 | 0x0000_0000 | 32B | RW | UIRS0 | Index 0 User Interrupt Receiver Status |
-| 0x0000_0040 | 32B | RW | UIRS1 | Index 1 User Interrupt Receiver Status |
+| 0x0000_0020 | 32B | RW | UIRS1 | Index 1 User Interrupt Receiver Status |
 | ... | ... | ... | ... | ... |
-| 0x0000_3FC0 | 32B | RW | UIRS511 | Index 511 User Interrupt Receiver Status |
+| 0x0000_3FE0 | 32B | RW | UIRS511 | Index 511 User Interrupt Receiver Status |
 
 A **32 B** register is divided into **4** operations corresponding to the **uipi opcode** field specification of `UIPI`. Operations are aligned to **8 B** for direct load and store in S mode.
 
