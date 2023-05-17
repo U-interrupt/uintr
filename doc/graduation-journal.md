@@ -1,5 +1,35 @@
 # Graduation Journal
 
+## 5.17
+
+构建 Rocket Chip 并成功运行 OpenSBI：
+
+遇到的问题：
+
+- 到底该如何 reset ，最简单的办法是让 ps 端通过 AXI 控制 sys_reset 这个信号，目前的做法是在 pl 中配置了一个 AXI_GPIO ，设备树节点由 SDK 中的 hsi 自动生成，ps 端的 Linux 看到这个设备后会在 /sys/class/gpio 中创建对应的文件，只需要利用操作 gpio 的办法就可以 reset Rocket Chip 。
+- 之前读写内存失败可能是地址没有配置正确，ps 端看到的 reserved-memory 虽然在总线上地址是从 0x8_0000_0000 开始的，但是在 mmap 读写这块区域时，传入的地址实际上是偏移量； SoC 搭建时配置的地址映射应该是一样的，因为 S_AXI_HP0_FPD 直接连接在 DDR 控制器上。
+- 在 reset 时应该重新加载 OpenSBI ，因为 OpenSBI 在 .data 段有 lotery 等变量，在启动初始化时默认这些变量是 0 。
+- 采用 pl 的串口到 ps 的串口的办法，看不到输出，学长建议直接将 pl 的串口绑定引脚，成功在串口终端看到连续的乱码，说明 Rocket Chip 正常运行 OpenSBI ，串口的波特率配置存在问题。
+- 在台式机上连接串口时，需要指定波特率为 57600 才能看到正确的输出，原因不详，可能是 OpenSBI 算错了，也可能是主机的驱动算错了。
+
+项目结构更新：
+
+- `common`：和 uintr 相关的 scala 代码，以及一些公共的构建脚本，参考自 zynq-fpga 等项目：
+  - `Makefrag`：公共的构建脚本，会被开发版文件夹引用；
+  - `build.sh`：参考自 rocket-tools ，用于编译和安装 tests 和 spike，因为这两个子模块可能有我们自己的改动；
+  - `boot`：和 boot 有关的代码、工具
+- `digilent-vivado-scripts`：维护 vivado 项目，checkin 从 xpr 生成 tcl 脚本，checkout 从 tcl 生成 xpr 项目文件
+- `rocket-chip`：作为子模块指向 v1.6 版本的 rocket-chip 项目，这是 fork 后绑定的版本；
+- `spike`：作为子模块指向最新版的 riscv-isa-sim 项目；指令级别的模拟器，暂时不会修改这个模拟器，因为可以跑裸汇编并查看波形确保正确性，且硬件设计的规模不是很大；
+- `tests`：作为子模块指向最新版的 riscv-tests 项目，主要在这个项目中添加 uintr 的汇编测例；
+- `zcu102`：zcu102 开发板相关配置，包括引脚绑定、时钟配置、block design 项目生成脚本等；
+  - `dts`：rocket chip 上运行 OpenSBI 和 Linux 使用的设备树，ps 端运行 Linux 使用的设备树
+  - `proj`：vivado 项目目录
+  - `src`：资源文件目录
+    - `bd`：项目的 tcl 文件
+    - `hdl`：主要是 rocket chip 文件和顶层的 wrapper
+    - `constraints`：硬件约束，用来绑定引脚
+
 ## 4.31
 
 构建在 FPGA 的 Block Design 上连接的 Top Module 。
