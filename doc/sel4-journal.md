@@ -99,3 +99,12 @@ All is well in the universe
 ## 2023.06.20
 
 继续学习 seL4 源码，思考如何修改 Notification 。
+
+## 2023.07.05
+
+在 `build` 目录下执行 `ccmake .` 进入图形界面对编译选项进行配置，设置 MAX_NODES 和 SMP 后并编译发现 `simulate` 启动卡住，问题出现在 elfloader-tool 的 arch-riscv 启动流程 boot.c 中。主要函数是 `run_elfloader`，如果编译选项 NUM_NODES 大于 1 ，主核就会执行 `sbi_hart_start` 唤醒从核，从核入口为 `crt0.S` 中的 `secondary_harts`，从核跳转到 `secondary_entry` 前会进行栈初始化。主从核都会执行 `set_and_wait_for_ready` 来设置 `core_ready[core_id]` 并等待所有核都将该位设置为 1 。默认的 simulate 执行时未指定 `-smp` 选项，因此 opensbi 仅识别到了一个核，并只在一个核上启动了 elfloader ，导致主核卡在等待从核启动的循环处，手动运行 qemu 可以解决这个问题。
+
+开启 MCS 和 SMP 后 kernel 启动报错：`seL4 failed assertion 't0 <= margin + t && t <= t0 + margin' at /home/tkf/Code/os/seL4/sel4test2/kernel/src/kernel/boot.c:563 in function clock_sync_test` ，可能是时钟不匹配，跳过这里后卡在 `SCHED_CONTEXT_0014` 测例。
+
+补充 seL4 源码阅读文档。
+
