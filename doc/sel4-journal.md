@@ -108,3 +108,13 @@ All is well in the universe
 
 补充 seL4 源码阅读文档。
 
+## 2023.07.10
+
+seL4 的 Notification 机制一共有三个函数，分别是 Send ，Wait，Poll 。在 riscv 的 lib 库中，Wait 和 Poll 分别调用了 Recv 和 NBRecv 。NBRecv 是指如果不处于 Active 状态就直接返回 0 。Notification 的设计初衷是一种跨进程的同步机制，也就是说通信的接收方需要显式地获取 badge 中包含的信息。对于正在两个核上运行的进程或线程来说，平均每次通信至少需要两次陷入的时间（阻塞的 Recv 可能会导致接收方等待再次被调度）
+
+想让用户态中断替代 Notification ，有如下的几个问题：
+
+- 何时注册接收方？ 内核中的 notfication 结构会 bind 到某个 TCB （TCB 也会指向 notification 结构），可以在用户态执行 `seL4_TCB_BindNotification` 的时候默认将当前 TCB 作为用户态中断的接收方。
+- 何时注册发送方？如果发送方与接收方共享 CSpace，就不需要获取 notification 的 cap ，否则需要通过 `seL4_CNode_Copy` 进行共享。一种可能的做法是让用户程序自行维护当前是否已经注册过发送方的信息，如果尚未注册则需要 Call 内核 service 来注册对应 notification 的发送方状态，否则就直接执行 `uipi.send` 。
+- 完成注册后，发送方直接执行 uipi.send ，接收方则直接通过 uipi.read 读取位于 UINTC 中的 badge （Pending Requests），也就是说二者都不需要陷入就可以完成同步。
+- 目前 Notification 机制并不支持用户态的异步，无法在改动特别小的情况下应用用户态中断处理函数，所以需要默认将 UINTC 中的 Active 位置 0 。
