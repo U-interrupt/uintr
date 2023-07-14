@@ -118,3 +118,12 @@ seL4 的 Notification 机制一共有三个函数，分别是 Send ，Wait，Pol
 - 何时注册发送方？如果发送方与接收方共享 CSpace，就不需要获取 notification 的 cap ，否则需要通过 `seL4_CNode_Copy` 进行共享。一种可能的做法是让用户程序自行维护当前是否已经注册过发送方的信息，如果尚未注册则需要 Call 内核 service 来注册对应 notification 的发送方状态，否则就直接执行 `uipi.send` 。
 - 完成注册后，发送方直接执行 uipi.send ，接收方则直接通过 uipi.read 读取位于 UINTC 中的 badge （Pending Requests），也就是说二者都不需要陷入就可以完成同步。
 - 目前 Notification 机制并不支持用户态的异步，无法在改动特别小的情况下应用用户态中断处理函数，所以需要默认将 UINTC 中的 Active 位置 0 。
+
+## 2023.07.13
+
+尝试在已有的 Notification 逻辑中添加代码，目前遇到了几个问题：
+
+- 何时注册接收方？没有绑定到 Ntfn 的其他 TCB 也可以通过 seL4_Wait 和 seL4_Poll 获取 badge ，按照现在的设计，仍需要额外的接口来注册成为接收方
+- 何时注册发送方？通过 Copy 、Move 、Mint 等操作在发送方 CSpace 中加入 Ntfn 的 cap ，这些系统调用不会将 TCB 传给内核，`cap_cnode_cap` 类型的 cap 也无法得知其指向的 TCB ，因此无法通过这些系统调用注册发送方
+- 如何获取发送方 index ？添加额外的接口：`void seL4_Uintr_Sender(CPtr_t recv, int *index)`
+- 如何注册多个接收方？添加内核结构，包括接收 TCB 的等待队列，每个 TCB 保存对应的 UINTC index
