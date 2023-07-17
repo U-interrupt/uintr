@@ -166,6 +166,8 @@ seL4 的 Notification 机制一共有三个函数，分别是 Send ，Wait，Pol
  28 files changed, 798 insertions(+), 5 deletions(-)
 ```
 
+此外，在 `seL4_libs/libsel4vka/arch_include/riscv/vka/arch/object.h` 中进行了修改。
+
 添加 seL4 API 如下：
 
 - `seL4_UintrSend`：即 uipi.send 指令，利用 `seL4_RISCV_Uintr_RegisterSender` 返回的 index ，发送用户态中断
