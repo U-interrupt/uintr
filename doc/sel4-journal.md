@@ -3,7 +3,7 @@
 TODO：
 
 - [x] (ARCH=RISCV64) 在 QEMU 上启动 seL4 ，运行 seL4test 和 seL4bench
-- [ ] 尝试在不改动原有 seL4 API 的基础上，使用用户态中断机制替换 Notification 机制
+- [x] 尝试在不改动原有 seL4 API 的基础上，使用用户态中断机制替换 Notification 机制
 - [ ] 构建用户态文件系统和设备驱动，运行 sqlite3 
 - [ ] 在 QEMU 上对 sqlite3 进行性能评估（benchmark 可以有 YSCB 等，不同读写负载，比较系统吞吐）
 - [ ] 在 Rocket Chip 上启动 seL4 ，boot 流程应该与 Linux 类似
@@ -123,7 +123,118 @@ seL4 的 Notification 机制一共有三个函数，分别是 Send ，Wait，Pol
 
 尝试在已有的 Notification 逻辑中添加代码，目前遇到了几个问题：
 
-- 何时注册接收方？没有绑定到 Ntfn 的其他 TCB 也可以通过 seL4_Wait 和 seL4_Poll 获取 badge ，按照现在的设计，仍需要额外的接口来注册成为接收方
+- 何时注册接收方？没有绑定到 Ntfn 的其他 TCB 也可以通过 seL4_Wait 和 seL4_Poll 获取 badge ，按照现在的设计，仍需要额外的接口来注册成为接收方（**07.17 更新**：seL4 的逻辑是要么只有一个接收方绑定到 Notification ，要么多个接收方都不绑定）
 - 何时注册发送方？通过 Copy 、Move 、Mint 等操作在发送方 CSpace 中加入 Ntfn 的 cap ，这些系统调用不会将 TCB 传给内核，`cap_cnode_cap` 类型的 cap 也无法得知其指向的 TCB ，因此无法通过这些系统调用注册发送方
 - 如何获取发送方 index ？添加额外的接口：`void seL4_Uintr_Sender(CPtr_t recv, int *index)`
 - 如何注册多个接收方？添加内核结构，包括接收 TCB 的等待队列，每个 TCB 保存对应的 UINTC index
+
+## 2023.07.17
+
+### seL4 uintr
+
+修改代码内容如下（kernel）：
+
+```log
+ include/api/debug.h                                           |   5 +++
+ include/arch/riscv/arch/64/mode/object/structures.bf          |  31 +++++++++++++++++++
+ include/arch/riscv/arch/fastpath/fastpath.h                   |   7 +++++
+ include/arch/riscv/arch/machine/registerset.h                 |   5 +++
+ include/arch/riscv/arch/object/structures.h                   |  60 +++++++++++++++++++++++++++++++++++
+ include/arch/riscv/arch/object/uintr.h                        | 146 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ include/drivers/irq/riscv_uintc.h                             |  46 +++++++++++++++++++++++++++
+ include/kernel/thread.h                                       |   6 ++++
+ include/object/structures.h                                   |   3 ++
+ include/object/tcb.h                                          |   7 +++++
+ libsel4/arch_include/riscv/interfaces/sel4arch.xml            |  56 +++++++++++++++++++++++++++++++++
+ libsel4/arch_include/riscv/sel4/arch/syscalls.h               |  53 +++++++++++++++++++++++++++++++
+ libsel4/arch_include/riscv/sel4/arch/types.h                  |   4 ++-
+ libsel4/sel4_arch_include/riscv64/sel4/sel4_arch/constants.h  |   4 +++
+ libsel4/sel4_arch_include/riscv64/sel4/sel4_arch/objecttype.h |   3 ++
+ libsel4/tools/syscall_stub_gen.py                             |   1 +
+ src/api/syscall.c                                             |  19 ++++++++++++
+ src/arch/riscv/c_traps.c                                      |   8 +++++
+ src/arch/riscv/config.cmake                                   |   7 +++++
+ src/arch/riscv/machine/capdl.c                                |   8 +++++
+ src/arch/riscv/object/objecttype.c                            |  80 +++++++++++++++++++++++++++++++++++++++++++++--
+ src/arch/riscv/object/uintr.c                                 | 144 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/arch/riscv/traps.S                                        |  10 ++++++
+ src/object/endpoint.c                                         |   2 +-
+ src/object/objecttype.c                                       |   1 +
+ src/object/tcb.c                                              |  77 +++++++++++++++++++++++++++++++++++++++++++++
+ src/plat/qemu-riscv-virt/overlay-qemu-riscv-virt.dts          |   2 +-
+ tools/hardware.yml                                            |   8 +++++
+ 28 files changed, 798 insertions(+), 5 deletions(-)
+```
+
+添加 seL4 API 如下：
+
+- `seL4_UintrSend`：即 uipi.send 指令，利用 `seL4_RISCV_Uintr_RegisterSender` 返回的 index ，发送用户态中断
+- `seL4_UintrNBRecv`：即 uipi.read 指令，读取当前 pending requests
+- `seL4_Error seL4_TCB_BindUintr(seL4_TCB _service, seL4_CPtr uintr)`：绑定 TCB 和 uintr ，注册接收方 UINTC 表项
+- `seL4_Error seL4_TCB_UnbindUintr(seL4_TCB _service)`：取消 TCB 和 uintr 绑定，释放占用的 UINTC 表项
+- `seL4_RISCV_Uintr_RegisterSender_t seL4_RISCV_Uintr_RegisterSender(seL4_RISCV_Uintr _service)`：注册发送方并返回 index ，传入参数为发送方持有的接收方 uintr cap。
+
+基础测例实现如下（与 Notification 进行对比）,可以看出 uintr 只多需要一次获取 index：
+
+```c
+static int sender_func(seL4_CPtr send_ntfn, seL4_CPtr recv_ntfn, seL4_Word send_badge, UNUSED seL4_Word arg)
+{
+    seL4_Word badge = 0, i;
+    seL4_MessageInfo_t info = {{0}};
+    for (i = 0; i < LOOP_TIMES; i++) {
+        /* send a signal to receiver's notification */
+        seL4_Signal(recv_ntfn);
+        while (1) {
+            /* poll on sender's notification */
+            seL4_Poll(send_ntfn, &badge);
+            if (badge == send_badge) break;
+        }
+    }
+    return SUCCESS;
+}
+
+static int uintr_sender_func(seL4_CPtr recv_uintr, seL4_Word send_badge, UNUSED seL4_Word arg0, UNUSED seL4_Word arg1)
+{
+    seL4_Word badge = 0, i;
+    seL4_MessageInfo_t info = {{0}};
+    seL4_RISCV_Uintr_RegisterSender_t res;
+    res = seL4_RISCV_Uintr_RegisterSender(recv_uintr);
+    test_eq(res.error, 0);
+    for (i = 0; i < LOOP_TIMES; i++) {
+        /* send a signal to receiver's uintr */
+        seL4_UintrSend(res.index);
+        while (1) {
+            /* poll on sender's uintr */
+            seL4_UintrNBRecv(&badge);
+            if (badge == 1 << send_badge) break;
+        }
+    }
+    return SUCCESS;
+}
+```
+
+添加内核结构和对应的 cap 如下：
+
+```
+block uintr_cap {
+    field capUintrBadge         6
+    field capUintrSendIndex     12
+    field_high capUintrSendBase 39
+    padding                     7
+
+    field capType               5
+    padding                     20
+    field_high capUintrPtr      39
+}
+
+block uintr {
+    padding                     7
+    field state                 2
+    field uintrIndex            16
+    field_high uintrBoundTCB    39
+
+    field uintrPending          64
+}
+```
+
+注意在 badge 的语义上，目前的 uintr 计算方法是 `pending | (1 << badge) `，而 Notification 的计算方法是 `msgIdentifier | bdage` 。
