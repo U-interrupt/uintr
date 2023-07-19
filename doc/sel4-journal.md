@@ -2,7 +2,7 @@
 
 TODO：
 
-- [x] (ARCH=RISCV64) 在 QEMU 上启动 seL4 ，运行 seL4test 和 seL4bench
+- [x] (ARCH=RISCV64) 在 QEMU 上启动 seL4 ，运行 seL4test
 - [x] 尝试在不改动原有 seL4 API 的基础上，使用用户态中断机制替换 Notification 机制
 - [ ] 构建用户态文件系统和设备驱动，运行 sqlite3 
 - [ ] 在 QEMU 上对 sqlite3 进行性能评估（benchmark 可以有 YSCB 等，不同读写负载，比较系统吞吐）
